@@ -38,10 +38,15 @@ export default function Register() {
       };
 
       await register(email, password, userData);
-      navigate('/exercises');
-    } catch (err) {
+      // Rediriger vers la page de connexion après l'inscription réussie
+      navigate('/login');
+    } catch (err: any) {
       console.error('Registration error:', err);
-      setError('Une erreur est survenue lors de l\'inscription');
+      if (err.code === 'auth/email-already-in-use') {
+        setError('Cette adresse email est déjà utilisée. Veuillez vous connecter ou utiliser une autre adresse email.');
+      } else {
+        setError('Une erreur est survenue lors de l\'inscription');
+      }
     } finally {
       setLoading(false);
     }
@@ -192,6 +197,7 @@ export default function Register() {
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-gray-300" />
             </div>
+
             <div className="relative flex justify-center text-sm">
               <span className="px-2 bg-white text-gray-500">
                 Déjà inscrit ?

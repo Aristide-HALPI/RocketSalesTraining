@@ -13,7 +13,7 @@ interface ExerciseSettings {
 }
 
 const defaultSettings: ExerciseSettings[] = [
-  { id: 'goalkeeper', type: 'goalkeeper', name: 'Exercice Goalkeeper', workflow: 'ai_with_review' },
+  { id: 'goalkeeper', type: 'goalkeeper', name: 'Exercice Goalkeeper', workflow: 'ai_manual_with_review' },
   { id: 'eisenhower', type: 'eisenhower', name: 'Exercice Eisenhower', workflow: 'auto_correction' },
   { id: 'welcome', type: 'welcome', name: 'Exercice de bienvenue', workflow: 'manual' }
 ];
@@ -23,6 +23,14 @@ export default function EvaluationSettings() {
   const [loading, setLoading] = useState(true);
   const { userProfile } = useAuth();
   const [saving, setSaving] = useState(false);
+
+  const workflowOptions = [
+    { value: 'manual', label: 'Correction manuelle uniquement' },
+    { value: 'ai_manual_with_review', label: 'IA manuelle + Revue formateur' },
+    { value: 'ai_with_review', label: 'IA + Revue formateur' },
+    { value: 'ai_auto_publish', label: 'IA auto-publication' },
+    { value: 'auto_correction', label: 'Correction automatique' }
+  ];
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -59,18 +67,18 @@ export default function EvaluationSettings() {
     loadSettings();
   }, []);
 
-  const handleWorkflowChange = async (exerciseId: string, workflow: EvaluationWorkflow) => {
+  const handleWorkflowChange = async (exerciseId: string, newWorkflow: EvaluationWorkflow) => {
     try {
       setSaving(true);
       // Mettre à jour en base de données
       const docRef = doc(db, 'evaluationSettings', exerciseId);
       await setDoc(docRef, {
-        workflow
+        workflow: newWorkflow
       }, { merge: true });
       
       // Mettre à jour l'état local
       setExercises(prev => prev.map(ex => 
-        ex.id === exerciseId ? { ...ex, workflow } : ex
+        ex.id === exerciseId ? { ...ex, workflow: newWorkflow } : ex
       ));
       
       toast.success('Paramètres mis à jour avec succès');
@@ -110,10 +118,9 @@ export default function EvaluationSettings() {
                     disabled={saving}
                     className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
                   >
-                    <option value="manual">Correction manuelle uniquement</option>
-                    <option value="auto_correction">Correction automatique</option>
-                    <option value="ai_with_review">IA + Revue formateur</option>
-                    <option value="ai_auto_publish">IA auto-publication</option>
+                    {workflowOptions.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -129,6 +136,7 @@ export default function EvaluationSettings() {
           <li><strong>Correction automatique :</strong> Les exercices sont corrigés et publiés automatiquement selon des critères prédéfinis</li>
           <li><strong>IA + Revue formateur :</strong> L'IA évalue d'abord, puis le formateur revoit et valide</li>
           <li><strong>IA auto-publication :</strong> L'IA évalue et publie automatiquement les résultats</li>
+          <li><strong>IA manuelle + Revue formateur :</strong> L'IA évalue manuellement, puis le formateur revoit et valide</li>
         </ul>
       </div>
     </div>

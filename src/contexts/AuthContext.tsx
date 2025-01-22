@@ -98,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     const userPermissions: UserPermissions = {
-      canManageExercises: userData.role === 'formateur' || userData.role === 'admin',
+      canManageExercises: userData.role === 'trainer' || userData.role === 'admin',
       canManageUsers: userData.role === 'admin'
     };
 
@@ -108,8 +108,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       firstName: userData.firstName!,
       lastName: userData.lastName!,
       fullName: `${userData.firstName} ${userData.lastName}`,
-      role: (userData.role || 'apprenant') as UserRole,
-      status: 'actif' as UserStatus,
+      role: (userData.role || 'learner') as UserRole,
+      status: 'active' as UserStatus,
       createdAt: currentTime,
       updatedAt: currentTime,
       lastLogin: currentTime,

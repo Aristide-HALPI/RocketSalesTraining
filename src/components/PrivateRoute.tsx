@@ -1,7 +1,8 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { UserRole } from '../types/user';
 
-type Role = 'admin' | 'formateur';
+type Role = UserRole;
 
 interface PrivateRouteProps {
   children: React.ReactNode;

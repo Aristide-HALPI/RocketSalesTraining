@@ -9,30 +9,43 @@ export type ExerciseType =
   | 'cdab';
 
 export type EvaluationWorkflow = 
-  | 'manual'           // Correction manuelle uniquement
-  | 'ai_with_review'   // L'IA évalue, le formateur valide
-  | 'ai_auto_publish'  // L'IA évalue et publie automatiquement
-  | 'auto_correction'; // Correction et publication automatiques sans IA ni formateur
+  | 'manual'                // Correction manuelle uniquement
+  | 'ai_with_review'        // L'IA évalue automatiquement, le formateur valide
+  | 'ai_manual_with_review' // L'IA évalue sur demande, le formateur valide
+  | 'ai_auto_publish'       // L'IA évalue et publie automatiquement
+  | 'auto_correction';      // Correction et publication automatiques sans IA ni formateur
 
 export type EvaluationStatus = 'pending' | 'ai_evaluated' | 'trainer_reviewing' | 'published';
 
-export interface ScoringCriteria {
+export interface SubCriterion {
+  id: string;
+  name: string;
+  maxPoints: number;
+  score: number;
+  feedback: string;
+}
+
+export interface EvaluationCriterion {
   id: string;
   name: string;
   description: string;
   maxPoints: number;
-  scoreOptions: number[];
-  required: boolean;
-  score?: number;
-  feedback?: string;
-  subCriteria?: {
-    name: string;
-    points: number;
-  }[];
+  score: number;
+  consigne: string;
+  subCriteria?: SubCriterion[];
+  feedback: string;
+}
+
+export interface Evaluation {
+  totalScore: number;
+  criteria: EvaluationCriterion[];
+  comments: string;
+  evaluatedBy: string | null;
+  evaluatedAt: string | null;
 }
 
 export interface AIEvaluation {
-  criteria: ScoringCriteria[];
+  criteria: EvaluationCriterion[];
   feedback: string;
   evaluatedAt: string;
   confidence: number; // Score de confiance de l'IA entre 0 et 1
@@ -40,7 +53,7 @@ export interface AIEvaluation {
 }
 
 export interface TrainerReview {
-  criteria: ScoringCriteria[];
+  criteria: EvaluationCriterion[];
   feedback: string;
   reviewedAt: string;
   reviewedBy: string;
@@ -77,4 +90,13 @@ export interface Exercise<T = any> {
     timeLimit?: number;
     tags?: string[];
   };
+}
+
+export interface ExerciseSubmission {
+  type: string;
+  content: any;
+  status: 'draft' | 'submitted' | 'evaluated';
+  evaluation?: Evaluation;
+  submittedAt: string;
+  updatedAt: string;
 }

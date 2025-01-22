@@ -1,5 +1,5 @@
-export type UserRole = 'admin' | 'formateur' | 'apprenant';
-export type UserStatus = 'actif' | 'inactif' | 'suspendu';
+export type UserRole = 'admin' | 'trainer' | 'learner';
+export type UserStatus = 'active' | 'archived' | 'inactive' | 'suspended';
 
 export interface UserMetadata {
   lastUpdated: string;

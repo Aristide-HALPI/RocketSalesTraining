@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, doc, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, doc, setDoc, getDoc, getDocs } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDRsFI0XedzM2DIYXjhZSuSqS5mEiotpvA",
@@ -54,33 +54,12 @@ const sampleTemplates = [
         pendant la formation)
       `,
       firstCall: {
-        lines: Array.from({ length: 18 }, (_, index) => ({
-          id: index + 1,
-          speaker: index % 2 === 0 ? 'goalkeeper' : 'commercial',
-          text: index % 2 === 0 ? [
-            "Bonjour, société X j'écoute",
-            "Non désolé il n'est pas disponible",
-            "Je ne peux pas vous dire",
-            "Non je ne peux pas vous aider",
-            "Je ne sais pas quand il sera disponible",
-            "Non je ne peux pas vous donner son agenda",
-            "Je ne peux rien faire pour vous",
-            "Non vraiment je ne peux pas vous aider",
-            "Au revoir"
-          ][Math.floor(index/2)] || "" : "",
-          required: index % 2 === 0
-        }))
+        lines: [],
+        maxLines: 18
       },
       secondCall: {
-        lines: Array.from({ length: 5 }, (_, index) => ({
-          id: index + 19,
-          speaker: index % 2 === 0 ? 'commercial' : 'goalkeeper',
-          text: index % 2 !== 0 ? [
-            "Oui j'écoute",
-            "Ah oui je me souviens de vous"
-          ][Math.floor(index/2)] || "" : "",
-          required: index % 2 !== 0
-        }))
+        lines: [],
+        maxLines: 5
       },
       evaluationGrid: {
         maxPoints: 20,
@@ -94,50 +73,6 @@ const sampleTemplates = [
               { name: "Salutation professionnelle", points: 0.5 },
               { name: "Présentation claire", points: 0.5 },
               { name: "Maintien d'un ton respectueux", points: 0.5 }
-            ]
-          },
-          {
-            name: "Écoute active",
-            description: "Capacité à démontrer une écoute active et à rebondir sur les réponses",
-            maxPoints: 2,
-            scoreOptions: [0, 0.5, 1, 1.5, 2],
-            subCriteria: [
-              { name: "Reformulation des objections", points: 0.5 },
-              { name: "Questions pertinentes", points: 0.5 },
-              { name: "Adaptation aux réponses", points: 1 }
-            ]
-          },
-          {
-            name: "Gestion des objections",
-            description: "Efficacité dans le traitement des objections du goalkeeper",
-            maxPoints: 3,
-            scoreOptions: [0, 0.5, 1, 1.5, 2, 2.5, 3],
-            subCriteria: [
-              { name: "Utilisation de la technique du 'oui, mais'", points: 1 },
-              { name: "Arguments pertinents", points: 1 },
-              { name: "Réponses constructives aux refus", points: 1 }
-            ]
-          },
-          {
-            name: "Persistance professionnelle",
-            description: "Capacité à maintenir le dialogue de manière constructive",
-            maxPoints: 2,
-            scoreOptions: [0, 0.5, 1, 1.5, 2],
-            subCriteria: [
-              { name: "Insistance appropriée", points: 0.5 },
-              { name: "Maintien du professionnalisme", points: 0.5 },
-              { name: "Gestion du refus", points: 1 }
-            ]
-          },
-          {
-            name: "Application des techniques",
-            description: "Utilisation des techniques apprises pendant la formation",
-            maxPoints: 2,
-            scoreOptions: [0, 0.5, 1, 1.5, 2],
-            subCriteria: [
-              { name: "Techniques de questionnement", points: 0.5 },
-              { name: "Techniques de reformulation", points: 0.5 },
-              { name: "Techniques de conclusion", points: 1 }
             ]
           }
         ]
@@ -162,6 +97,32 @@ async function main() {
   try {
     await initializeCollection('users', sampleUsers);
     await initializeCollection('templates', sampleTemplates);
+
+    // Initialiser l'exercice goalkeeper pour chaque apprenant
+    const usersRef = collection(db, 'users');
+    const usersSnapshot = await getDocs(usersRef);
+    const users = usersSnapshot.docs.reduce((acc, doc) => ({ ...acc, [doc.id]: doc.data() }), {});
+
+    for (const userId of Object.keys(users)) {
+      if (users[userId].role === 'learner') {
+        const exerciseRef = doc(db, `users/${userId}/exercises/goalkeeper`);
+        const exerciseDoc = await getDoc(exerciseRef);
+
+        if (!exerciseDoc.exists()) {
+          console.log(`Initializing goalkeeper exercise for user: ${userId}`);
+          await setDoc(exerciseRef, {
+            id: userId,
+            userId,
+            status: 'in_progress',
+            firstCall: { lines: [] },
+            secondCall: { lines: [] },
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+        }
+      }
+    }
+
     console.log('Database initialized successfully!');
   } catch (error) {
     console.error('Error initializing database:', error);

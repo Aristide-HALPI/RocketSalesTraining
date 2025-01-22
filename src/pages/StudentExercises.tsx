@@ -22,6 +22,8 @@ interface Exercise {
   type?: 'eisenhower' | 'welcome' | 'goalkeeper';
   isAutoCorrected?: boolean;
   isViewOnly?: boolean;
+  statusColor?: string;
+  statusText?: string;
 }
 
 // Seuls Eisenhower et Bienvenue sont des exercices spéciaux
@@ -43,6 +45,32 @@ const SPECIAL_EXERCISES = [
     isViewOnly: true
   }
 ] as Exercise[];
+
+const getStatusColor = (status: Exercise['status']) => {
+  switch (status) {
+    case 'completed':
+      return 'text-green-600';
+    case 'in_progress':
+      return 'text-blue-600';
+    case 'pending_validation':
+      return 'text-orange-600';
+    default:
+      return 'text-gray-600';
+  }
+};
+
+const getStatusText = (status: Exercise['status']) => {
+  switch (status) {
+    case 'completed':
+      return 'Terminé';
+    case 'in_progress':
+      return 'En cours';
+    case 'pending_validation':
+      return 'En attente de validation';
+    default:
+      return 'Non commencé';
+  }
+};
 
 export default function StudentExercises() {
   const { userId } = useParams<{ userId: string }>();
@@ -69,7 +97,12 @@ export default function StudentExercises() {
         });
 
         // Récupérer l'exercice de bienvenue (toujours visible)
-        const welcomeExercise = SPECIAL_EXERCISES[1];
+        const welcomeExercise = {
+          ...SPECIAL_EXERCISES[1],
+          status: 'completed' as const,
+          statusColor: getStatusColor('completed'),
+          statusText: getStatusText('completed')
+        };
 
         // Récupérer l'exercice Eisenhower s'il a été soumis
         const eisenhowerDoc = await getDoc(doc(db, 'exercises', `eisenhower_${userId}`));
@@ -80,23 +113,34 @@ export default function StudentExercises() {
             ...SPECIAL_EXERCISES[0],
             status: 'completed' as const,
             score: eisenhowerData.score,
-            lastUpdated: eisenhowerData.lastUpdated
+            lastUpdated: eisenhowerData.lastUpdated,
+            statusColor: getStatusColor('completed'),
+            statusText: getStatusText('completed')
           };
         }
 
         // Récupérer l'exercice Goalkeeper s'il existe
-        const goalkeeperDoc = await getDoc(doc(db, 'exercises', `goalkeeper_${userId}`));
+        const goalkeeperDoc = await getDoc(doc(db, `users/${userId}/exercises/goalkeeper`));
         let goalkeeperExercise: Exercise | null = null;
-        if (goalkeeperDoc.exists() && goalkeeperDoc.data().isSubmitted) {
+        if (goalkeeperDoc.exists()) {
           const goalkeeperData = goalkeeperDoc.data();
+          const status = goalkeeperData.status === 'submitted' 
+            ? (goalkeeperData.evaluation?.evaluatedAt ? 'completed' : 'pending_validation')
+            : 'in_progress';
+          const score = goalkeeperData.evaluation?.totalScore;
+          const lastUpdated = goalkeeperData.updatedAt || goalkeeperData.submittedAt;
+          const statusColor = getStatusColor(status);
+          const statusText = getStatusText(status);
           goalkeeperExercise = {
             id: 'goalkeeper',
             title: 'Exercice Goalkeeper',
             description: 'Exercice de dialogue commercial',
             type: 'goalkeeper' as const,
-            status: goalkeeperData.isEvaluated ? 'completed' : 'pending_validation',
-            score: goalkeeperData.totalScore,
-            lastUpdated: goalkeeperData.lastUpdated
+            status,
+            score,
+            lastUpdated,
+            statusColor,
+            statusText
           };
         }
 
@@ -148,12 +192,23 @@ export default function StudentExercises() {
       );
     }
 
+    if (exercise.type === 'goalkeeper') {
+      return (
+        <Button
+          onClick={() => navigate(`/features/goalkeeper?studentId=${userId}`)}
+          className="inline-flex items-center px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md"
+        >
+          {exercise.status === 'pending_validation' ? 'Évaluer' : 'Voir'}
+        </Button>
+      );
+    }
+
     return (
       <Button
-        onClick={() => navigate(`/evaluate/${userId}/${exercise.id}`)}
+        onClick={() => navigate(`/${exercise.type}?studentId=${userId}&mode=evaluation`)}
         className="inline-flex items-center px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md"
       >
-        {exercise.status === 'pending_validation' ? 'Valider correction' : 'Évaluer'}
+        Évaluer
       </Button>
     );
   };
@@ -238,9 +293,7 @@ export default function StudentExercises() {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       {getStatusIcon(exercise.status)}
-                      <span className="ml-2 text-sm text-gray-500">
-                        {exercise.status === 'pending_validation' ? 'En attente de validation' : 'Complété'}
-                      </span>
+                      <span className={`ml-2 ${exercise.statusColor}`}>{exercise.statusText}</span>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

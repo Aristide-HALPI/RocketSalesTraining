@@ -43,7 +43,7 @@ export default function ExerciseEvaluation() {
       try {
         // Si l'ID de l'exercice commence par "goalkeeper", rediriger vers GoalkeeperExercise
         if (exerciseId === 'goalkeeper') {
-          navigate(`/goalkeeper?userId=${userId}&mode=evaluation`);
+          navigate(`/features/goalkeeper?studentId=${userId}`);
           return;
         }
 
@@ -55,7 +55,7 @@ export default function ExerciseEvaluation() {
           const data = exerciseSnap.data();
           switch (data.type) {
             case 'goalkeeper':
-              navigate(`/goalkeeper?userId=${userId}&mode=evaluation`);
+              navigate(`/features/goalkeeper?studentId=${userId}`);
               break;
             // Ajouter d'autres cas ici si nécessaire
             default:
