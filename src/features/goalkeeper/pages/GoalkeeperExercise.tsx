@@ -67,7 +67,7 @@ const GoalkeeperExercise: React.FC = () => {
         evaluation: localEvaluation || exercise.evaluation
       };
 
-      await updateDoc(doc(db, 'goalkeeper_exercises', exercise.id), updatedExercise);
+      await updateDoc(doc(db, `users/${userId}/exercises`, 'goalkeeper'), updatedExercise);
       console.log('Évaluation sauvegardée avec succès');
     } catch (error) {
       console.error('Erreur lors de la sauvegarde de l\'évaluation:', error);
@@ -79,7 +79,7 @@ const GoalkeeperExercise: React.FC = () => {
     if (!exercise || !userId || !isFormateur || !userProfile) return;
 
     try {
-      await updateDoc(doc(db, 'goalkeeper_exercises', exercise.id), {
+      await updateDoc(doc(db, `users/${userId}/exercises`, 'goalkeeper'), {
         status: 'evaluated',
         evaluation: {
           ...exercise.evaluation,
@@ -284,6 +284,56 @@ const GoalkeeperExercise: React.FC = () => {
     }
   };
 
+  // Chargement initial de l'exercice
+  useEffect(() => {
+    if (!userId) {
+      console.log('Aucun identifiant d\'utilisateur disponible');
+      return;
+    }
+
+    const loadExercise = async () => {
+      try {
+        // D'abord, on récupère ou crée l'exercice
+        const initialExercise = await goalkeeperService.getExercise(userId);
+        if (initialExercise) {
+          setExercise(initialExercise);
+        }
+        
+        // Ensuite, on s'abonne aux mises à jour
+        const unsubscribe = goalkeeperService.subscribeToExercise(userId, (updatedExercise) => {
+          console.log('Exercise updated:', updatedExercise);
+          setExercise(updatedExercise);
+          setLoading(false);
+        });
+
+        return unsubscribe;
+      } catch (error) {
+        console.error('Error loading exercise:', error);
+        setLoading(false);
+      }
+    };
+
+    loadExercise().then(unsubscribe => {
+      return () => {
+        if (unsubscribe) {
+          unsubscribe();
+        }
+        if (debouncedUpdate) {
+          clearTimeout(debouncedUpdate);
+        }
+      };
+    });
+  }, [userId]);
+
+  // Rendu du composant
+  if (loading) {
+    return <div className="flex justify-center items-center h-screen">Chargement...</div>;
+  }
+
+  if (!exercise) {
+    return <div className="flex justify-center items-center h-screen">Erreur de chargement de l'exercice</div>;
+  }
+
   // Rendu conditionnel de la grille d'évaluation
   const showEvaluationGrid = isFormateur || exercise?.status === 'submitted';
   console.log('Debug - Evaluation Grid:', {
@@ -292,46 +342,6 @@ const GoalkeeperExercise: React.FC = () => {
     showEvaluationGrid,
     hasEvaluation: !!exercise?.evaluation
   });
-
-  useEffect(() => {
-    if (!userId) {
-      console.log('Aucun identifiant d\'utilisateur disponible');
-      return;
-    }
-
-    console.log('Initialisation de l\'exercice pour l\'identifiant d\'utilisateur:', userId);
-    let unsubscribe: (() => void) | undefined;
-    
-    const initializeExercise = async () => {
-      try {
-        const initialExercise = await goalkeeperService.getExercise(userId);
-        console.log('Exercice initial:', initialExercise);
-        if (initialExercise) {
-          setExercise(initialExercise);
-          
-          // S'abonner aux mises à jour
-          unsubscribe = goalkeeperService.subscribeToExercise(userId, (updatedExercise) => {
-            console.log('Mise à jour de l\'exercice reçue:', updatedExercise);
-            setExercise(updatedExercise);
-          });
-        }
-        setLoading(false);
-      } catch (error) {
-        console.error('Erreur lors de l\'initialisation de l\'exercice:', error);
-        setLoading(false);
-      }
-    };
-
-    initializeExercise();
-
-    // Cleanup function
-    return () => {
-      if (unsubscribe) {
-        console.log('Désabonnement des mises à jour de l\'exercice');
-        unsubscribe();
-      }
-    };
-  }, [userId]);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -342,157 +352,153 @@ const GoalkeeperExercise: React.FC = () => {
         Retour au tableau de bord
       </Link>
 
-      {loading ? (
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      {isFormateur && (
+        <div className="bg-blue-100 p-4 mb-6 rounded-lg">
+          <h2 className="text-lg font-semibold text-blue-800">Mode Formateur</h2>
+          <p className="text-blue-600 mb-4">Vous corrigez l'exercice de l'apprenant.</p>
+          <button
+            onClick={handleAIEvaluation}
+            className="px-6 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 flex items-center gap-2"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+            Corriger avec l'IA
+          </button>
         </div>
-      ) : !exercise ? (
-        <div>Erreur : Impossible de charger l'exercice</div>
-      ) : (
+      )}
+
+      <div className="flex justify-between items-start mb-6">
+        <div className="bg-purple-100 p-4 rounded-lg flex-grow mr-4">
+          <h2 className="text-lg font-semibold text-purple-800">Votre score</h2>
+          <p className="text-purple-600">(max 20 points)</p>
+          <p className="text-3xl font-bold text-purple-800 mt-2">{exercise.evaluation?.totalScore || 0}</p>
+        </div>
+        
+        {exercise.status !== 'in_progress' && (
+          <div className={`p-4 rounded-lg flex-grow ${exercise.status === 'evaluated' ? 'bg-green-100' : 'bg-yellow-100'}`}>
+            <h2 className={`text-lg font-semibold ${exercise.status === 'evaluated' ? 'text-green-800' : 'text-yellow-800'}`}>
+              Statut de l'exercice
+            </h2>
+            <p className={`mt-2 ${exercise.status === 'evaluated' ? 'text-green-600' : 'text-yellow-600'}`}>
+              {exercise.status === 'evaluated' 
+                ? 'Exercice corrigé' 
+                : 'En attente de correction'}
+            </p>
+            {exercise.status === 'evaluated' && exercise.evaluation?.evaluatedAt && (
+              <p className="text-sm text-green-600 mt-1">
+                Corrigé le {new Date(exercise.evaluation.evaluatedAt).toLocaleDateString()}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-blue-600 mb-4">Passer le Goalkeeper</h1>
+        <p className="text-gray-700 mb-6">
+          Écrivez un dialogue complet d'une conversation téléphonique avec le/la "goalkeeper" dans le but qu'il/elle vous passe le décideur
+          (en utilisant les techniques apprises pendant la formation)
+        </p>
+      </div>
+
+      {exercise.firstCall && (
         <>
+          {console.log('First Call Data:', exercise.firstCall)}
+          <DialogueSection
+            title="Premier appel"
+            section={{
+              ...exercise.firstCall,
+              lines: exercise.firstCall.lines.map((line, i) => ({
+                ...line,
+                feedback: localFeedbacks[`firstCall_${i}`] || line.feedback
+              }))
+            }}
+            isFormateur={isFormateur}
+            isSubmitted={exercise.status === 'submitted'}
+            onAddLine={(speaker) => handleAddLine('firstCall', speaker)}
+            onRemoveLine={() => handleRemoveLine('firstCall')}
+            onUpdateLine={(index, text) => handleLineUpdate('firstCall', index, text)}
+            onUpdateFeedback={(index, feedback) => handleFeedbackUpdate('firstCall', index, feedback)}
+          />
+        </>
+      )}
+
+      {exercise.secondCall && (
+        <>
+          {console.log('Second Call Data:', exercise.secondCall)}
+          <DialogueSection
+            title="Deuxième appel"
+            section={{
+              ...exercise.secondCall,
+              lines: exercise.secondCall.lines.map((line, i) => ({
+                ...line,
+                feedback: localFeedbacks[`secondCall_${i}`] || line.feedback
+              }))
+            }}
+            isFormateur={isFormateur}
+            isSubmitted={exercise.status === 'submitted'}
+            onAddLine={(speaker) => handleAddLine('secondCall', speaker)}
+            onRemoveLine={() => handleRemoveLine('secondCall')}
+            onUpdateLine={(index, text) => handleLineUpdate('secondCall', index, text)}
+            onUpdateFeedback={(index, feedback) => handleFeedbackUpdate('secondCall', index, feedback)}
+          />
+        </>
+      )}
+
+      {!isFormateur && exercise.status !== 'submitted' && (
+        <div className="flex justify-end mt-8">
+          <button
+            onClick={handleSubmit}
+            className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+          >
+            Soumettre
+          </button>
+        </div>
+      )}
+
+      {showEvaluationGrid && exercise.evaluation && (
+        <div className="mt-12 mb-8">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold">Grille d'évaluation</h2>
+            {exercise.status === 'submitted' && (
+              <div className="bg-yellow-100 px-4 py-2 rounded-lg">
+                <p className="text-yellow-800">
+                  En attente de l'évaluation du formateur
+                </p>
+              </div>
+            )}
+          </div>
+          <EvaluationGrid
+            isFormateur={isFormateur}
+            evaluation={localEvaluation || exercise.evaluation}
+            onUpdateScore={handleUpdateScore}
+            onUpdateFeedback={handleUpdateFeedback}
+          />
           {isFormateur && (
-            <div className="bg-blue-100 p-4 mb-6 rounded-lg">
-              <h2 className="text-lg font-semibold text-blue-800">Mode Formateur</h2>
-              <p className="text-blue-600 mb-4">Vous corrigez l'exercice de l'apprenant.</p>
+            <div className="mt-8 flex justify-end gap-4">
               <button
-                onClick={handleAIEvaluation}
-                className="px-6 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 flex items-center gap-2"
+                onClick={handleSaveEvaluation}
+                className="px-6 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6h-2v5.586l-1.293-1.293z" />
+                  <path d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm10 0H6v12h8V4z" />
+                </svg>
+                Sauvegarder
+              </button>
+              <button
+                onClick={handlePublishEvaluation}
+                className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-2"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                Corriger avec l'IA
+                Publier la correction
               </button>
             </div>
           )}
-
-          <div className="flex justify-between items-start mb-6">
-            <div className="bg-purple-100 p-4 rounded-lg flex-grow mr-4">
-              <h2 className="text-lg font-semibold text-purple-800">Votre score</h2>
-              <p className="text-purple-600">(max 20 points)</p>
-              <p className="text-3xl font-bold text-purple-800 mt-2">{exercise.evaluation?.totalScore || 0}</p>
-            </div>
-            
-            {exercise.status !== 'in_progress' && (
-              <div className={`p-4 rounded-lg flex-grow ${exercise.status === 'evaluated' ? 'bg-green-100' : 'bg-yellow-100'}`}>
-                <h2 className={`text-lg font-semibold ${exercise.status === 'evaluated' ? 'text-green-800' : 'text-yellow-800'}`}>
-                  Statut de l'exercice
-                </h2>
-                <p className={`mt-2 ${exercise.status === 'evaluated' ? 'text-green-600' : 'text-yellow-600'}`}>
-                  {exercise.status === 'evaluated' 
-                    ? 'Exercice corrigé' 
-                    : 'En attente de correction'}
-                </p>
-                {exercise.status === 'evaluated' && exercise.evaluation?.evaluatedAt && (
-                  <p className="text-sm text-green-600 mt-1">
-                    Corrigé le {new Date(exercise.evaluation.evaluatedAt).toLocaleDateString()}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="mb-8">
-            <h1 className="text-2xl font-bold text-blue-600 mb-4">Passer le Goalkeeper</h1>
-            <p className="text-gray-700 mb-6">
-              Écrivez un dialogue complet d'une conversation téléphonique avec le/la "goalkeeper" dans le but qu'il/elle vous passe le décideur
-              (en utilisant les techniques apprises pendant la formation)
-            </p>
-          </div>
-
-          {exercise.firstCall && (
-            <DialogueSection
-              title="Premier appel"
-              section={{
-                ...exercise.firstCall,
-                lines: exercise.firstCall.lines.map((line, i) => ({
-                  ...line,
-                  feedback: localFeedbacks[`firstCall_${i}`] || line.feedback
-                }))
-              }}
-              isFormateur={isFormateur}
-              isSubmitted={exercise.status === 'submitted'}
-              onAddLine={(speaker) => handleAddLine('firstCall', speaker)}
-              onRemoveLine={() => handleRemoveLine('firstCall')}
-              onUpdateLine={(index, text) => handleLineUpdate('firstCall', index, text)}
-              onUpdateFeedback={(index, feedback) => handleFeedbackUpdate('firstCall', index, feedback)}
-            />
-          )}
-
-          {exercise.secondCall && (
-            <DialogueSection
-              title="Deuxième appel"
-              section={{
-                ...exercise.secondCall,
-                lines: exercise.secondCall.lines.map((line, i) => ({
-                  ...line,
-                  feedback: localFeedbacks[`secondCall_${i}`] || line.feedback
-                }))
-              }}
-              isFormateur={isFormateur}
-              isSubmitted={exercise.status === 'submitted'}
-              onAddLine={(speaker) => handleAddLine('secondCall', speaker)}
-              onRemoveLine={() => handleRemoveLine('secondCall')}
-              onUpdateLine={(index, text) => handleLineUpdate('secondCall', index, text)}
-              onUpdateFeedback={(index, feedback) => handleFeedbackUpdate('secondCall', index, feedback)}
-            />
-          )}
-
-          {!isFormateur && exercise.status !== 'submitted' && (
-            <div className="flex justify-end mt-8">
-              <button
-                onClick={handleSubmit}
-                className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-              >
-                Soumettre
-              </button>
-            </div>
-          )}
-
-          {showEvaluationGrid && exercise.evaluation && (
-            <div className="mt-12 mb-8">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold">Grille d'évaluation</h2>
-                {exercise.status === 'submitted' && (
-                  <div className="bg-yellow-100 px-4 py-2 rounded-lg">
-                    <p className="text-yellow-800">
-                      En attente de l'évaluation du formateur
-                    </p>
-                  </div>
-                )}
-              </div>
-              <EvaluationGrid
-                isFormateur={isFormateur}
-                evaluation={localEvaluation || exercise.evaluation}
-                onUpdateScore={handleUpdateScore}
-                onUpdateFeedback={handleUpdateFeedback}
-              />
-              {isFormateur && (
-                <div className="mt-8 flex justify-end gap-4">
-                  <button
-                    onClick={handleSaveEvaluation}
-                    className="px-6 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 flex items-center gap-2"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6h-2v5.586l-1.293-1.293z" />
-                      <path d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm10 0H6v12h8V4z" />
-                    </svg>
-                    Sauvegarder
-                  </button>
-                  <button
-                    onClick={handlePublishEvaluation}
-                    className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-2"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    Publier la correction
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </>
+        </div>
       )}
     </div>
   );
