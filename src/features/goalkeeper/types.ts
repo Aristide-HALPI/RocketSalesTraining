@@ -105,7 +105,7 @@ export interface GoalkeeperExercise {
   status: 'in_progress' | 'submitted' | 'evaluated';
   firstCall: DialogueSection;
   secondCall: DialogueSection;
-  evaluation?: {
+  evaluation: {
     criteria: EvaluationCriterion[];
     totalScore: number;
     evaluatedBy?: string;

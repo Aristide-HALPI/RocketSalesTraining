@@ -78,7 +78,7 @@ export const DialogueSection: React.FC<DialogueSectionProps> = ({
                     onInput={(e) => {
                       const target = e.target as HTMLTextAreaElement;
                       target.style.height = 'auto';
-                      target.style.height = target.scrollHeight + 'px';
+                      target.style.height = `${target.scrollHeight}px`;
                     }}
                   />
                 ) : (
@@ -87,7 +87,15 @@ export const DialogueSection: React.FC<DialogueSectionProps> = ({
                     style={{ height: 'auto' }}
                   >
                     {isSubmitted 
-                      ? (line.feedback || 'Pas de commentaire')
+                      ? (line.feedback 
+                        ? (
+                          <div>
+                            <div className="mt-2 text-sm text-gray-600 italic bg-gray-50 p-2 rounded">
+                              {line.feedback}
+                            </div>
+                          </div>
+                        ) 
+                        : 'Pas de commentaire')
                       : 'Les commentaires et la note apparaîtront ici après la soumission'}
                   </div>
                 )}

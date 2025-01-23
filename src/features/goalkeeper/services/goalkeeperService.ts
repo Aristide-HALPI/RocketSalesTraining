@@ -2,6 +2,12 @@ import { db } from '../../../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { GoalkeeperExercise, GOALKEEPER_EVALUATION_CRITERIA } from '../types';
 
+type ExerciseStatus = 'in_progress' | 'submitted' | 'evaluated';
+
+const isValidStatus = (status: any): status is ExerciseStatus => {
+  return ['in_progress', 'submitted', 'evaluated'].includes(status);
+};
+
 // Fonction utilitaire pour nettoyer les undefined
 function cleanUndefined(obj: any): any {
   return JSON.parse(JSON.stringify(obj));
@@ -23,7 +29,7 @@ const initializeNewExercise = (userId: string): GoalkeeperExercise => {
 
   // Créer 18 lignes alternées pour le premier appel
   const firstCallLines = Array.from({ length: 18 }, (_, index) => 
-    createInitialLine(index % 2 === 0 ? 'commercial' : 'goalkeeper', '')
+    createInitialLine(index % 2 === 0 ? 'goalkeeper' : 'commercial', '')
   );
   console.log('Created first call lines:', firstCallLines);
 
@@ -33,10 +39,10 @@ const initializeNewExercise = (userId: string): GoalkeeperExercise => {
   );
   console.log('Created second call lines:', secondCallLines);
 
-  const exercise = {
+  const exercise: GoalkeeperExercise = {
     id: userId,
     userId,
-    status: 'in_progress',
+    status: 'in_progress' as const,
     firstCall: {
       lines: firstCallLines
     },
@@ -79,47 +85,37 @@ export const goalkeeperService = {
         return newExercise;
       }
 
-      const exerciseData = exerciseDoc.data();
-      console.log('Exercise data from Firestore:', exerciseData);
-
-      const status = exerciseData.status || 'in_progress';
-      
+      const data = exerciseDoc.data();
+        
       // Vérifier que le status est valide
-      if (status !== 'in_progress' && status !== 'submitted' && status !== 'evaluated') {
-        console.error('Invalid status:', status);
+      if (!isValidStatus(data.status)) {
+        console.error('Invalid status:', data.status);
         return null;
       }
 
       const exercise: GoalkeeperExercise = {
         id: userId,
         userId,
-        status: status as 'in_progress' | 'submitted' | 'evaluated',
+        status: data.status as 'in_progress' | 'submitted' | 'evaluated',
         firstCall: {
-          lines: exerciseData.firstCall?.lines || []
+          lines: data.firstCall?.lines || []
         },
         secondCall: {
-          lines: exerciseData.secondCall?.lines || []
+          lines: data.secondCall?.lines || []
         },
-        evaluation: exerciseData.evaluation || {
-          criteria: GOALKEEPER_EVALUATION_CRITERIA.map(criterion => ({
-            ...criterion,
-            subCriteria: (criterion.subCriteria || []).map(sub => ({
-              ...sub,
-              score: 0,
-              feedback: ''
-            }))
-          })),
-          totalScore: 0
+        evaluation: {
+          criteria: data.evaluation?.criteria || [],
+          totalScore: data.evaluation?.totalScore || 0,
+          evaluatedBy: data.evaluation?.evaluatedBy,
+          evaluatedAt: data.evaluation?.evaluatedAt
         },
-        createdAt: exerciseData.createdAt || new Date().toISOString(),
-        updatedAt: exerciseData.updatedAt || new Date().toISOString()
+        createdAt: data.createdAt || new Date().toISOString(),
+        updatedAt: data.updatedAt || new Date().toISOString()
       };
 
-      console.log('Normalized exercise data:', exercise);
       return exercise;
-
     } catch (error) {
-      console.error('Error in getExercise:', error);
+      console.error('Error getting goalkeeper exercise:', error);
       return null;
     }
   },
@@ -140,34 +136,37 @@ export const goalkeeperService = {
     return onSnapshot(exerciseRef, (doc) => {
       if (doc.exists()) {
         const data = doc.data();
-        const status = data.status || 'in_progress';
         
         // Vérifier que le status est valide
-        if (status !== 'in_progress' && status !== 'submitted' && status !== 'evaluated') {
-          console.error('Invalid status:', status);
+        if (!isValidStatus(data.status)) {
+          console.error('Invalid status:', data.status);
           return;
         }
 
-        onChange({
+        const exercise: GoalkeeperExercise = {
           id: userId,
           userId,
-          status: status as 'in_progress' | 'submitted' | 'evaluated',
+          status: data.status as ExerciseStatus,
           firstCall: data.firstCall || { lines: [] },
           secondCall: data.secondCall || { lines: [] },
-          evaluation: data.evaluation || {
-            criteria: GOALKEEPER_EVALUATION_CRITERIA.map(criterion => ({
+          evaluation: {
+            criteria: data.evaluation?.criteria || GOALKEEPER_EVALUATION_CRITERIA.map(criterion => ({
               ...criterion,
-              subCriteria: (criterion.subCriteria || []).map(sub => ({
+              subCriteria: criterion.subCriteria.map(sub => ({
                 ...sub,
                 score: 0,
                 feedback: ''
               }))
             })),
-            totalScore: 0
+            totalScore: data.evaluation?.totalScore || 0,
+            evaluatedBy: data.evaluation?.evaluatedBy,
+            evaluatedAt: data.evaluation?.evaluatedAt
           },
           createdAt: data.createdAt || new Date().toISOString(),
           updatedAt: data.updatedAt || new Date().toISOString()
-        });
+        };
+
+        onChange(exercise);
       } else {
         console.log('Exercise document does not exist for user:', userId);
       }
@@ -195,9 +194,23 @@ export const goalkeeperService = {
     const exerciseRef = doc(db, `users/${userId}/exercises`, 'goalkeeper');
     
     try {
+      // Réinitialiser l'évaluation avec tous les scores à 0
+      const resetEvaluation = {
+        criteria: GOALKEEPER_EVALUATION_CRITERIA.map(criterion => ({
+          ...criterion,
+          subCriteria: criterion.subCriteria.map(sub => ({
+            ...sub,
+            score: 0,
+            feedback: ''
+          }))
+        })),
+        totalScore: 0
+      };
+
       await updateDoc(exerciseRef, {
         status: 'submitted',
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        evaluation: resetEvaluation
       });
       console.log('Exercice soumis avec succès');
     } catch (error) {

@@ -100,7 +100,7 @@ export const EvaluationGrid: React.FC<EvaluationGridProps> = ({
                           value={subCriterion.feedback || ''}
                           onChange={(e) => onUpdateFeedback?.(criterion.id, subCriterion.id, e.target.value)}
                           placeholder="Ajouter un commentaire..."
-                          className="w-full mt-2 p-2 text-sm border border-gray-300 rounded resize-y focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-2 w-full p-2 border border-gray-300 rounded text-sm"
                           rows={2}
                         />
                       )}
@@ -113,13 +113,29 @@ export const EvaluationGrid: React.FC<EvaluationGridProps> = ({
                     {isFormateur && (
                       <div className="flex-none">
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           min="0"
                           max={subCriterion.maxPoints}
-                          value={subCriterion.score || 0}
-                          onChange={(e) => onUpdateScore?.(criterion.id, subCriterion.id, parseInt(e.target.value, 10))}
-                          className="w-16 p-2 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          value={subCriterion.score !== undefined ? subCriterion.score : ''}
+                          onChange={(e) => {
+                            const value = e.target.value.replace(/[^0-9]/g, '');
+                            if (value === '') {
+                              onUpdateScore?.(criterion.id, subCriterion.id, 0);
+                              return;
+                            }
+                            const score = Math.min(Number(value), subCriterion.maxPoints);
+                            if (!isNaN(score)) {
+                              onUpdateScore?.(criterion.id, subCriterion.id, score);
+                            }
+                          }}
+                          placeholder="0"
+                          className="w-16 p-2 border border-gray-300 rounded text-center"
                         />
+                        <div className="text-xs text-gray-500 text-center mt-1">
+                          / {subCriterion.maxPoints}
+                        </div>
                       </div>
                     )}
                   </div>
