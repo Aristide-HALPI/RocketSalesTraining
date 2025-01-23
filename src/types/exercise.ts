@@ -1,3 +1,5 @@
+export type ExerciseStatus = 'not_started' | 'in_progress' | 'pending_validation' | 'completed' | 'evaluated';
+
 export interface Exercise {
   id: string;
   templateId: string;
@@ -6,7 +8,7 @@ export interface Exercise {
   description: string;
   category: string;
   userId: string;
-  status: 'en cours' | 'soumis' | 'évalué';
+  status: ExerciseStatus;
   startedAt: string;
   submittedAt: string;
   timeSpent: number;
@@ -19,6 +21,14 @@ export interface Exercise {
   difficulty: number;
   tags: string[];
   feedback?: ExerciseFeedback;
+  score?: number;
+  lastUpdated?: string;
+  type?: 'eisenhower' | 'welcome' | 'goalkeeper' | 'sections' | 'solution' | 'rdv_decideur' | 'iiep' | 'presentation' | 'eombus' | 'cles' | 'cdab' | 'outil_cdab' | 'objections' | 'points_bonus' | 'points_role_final' | 'certification';
+  isAutoCorrected?: boolean;
+  isViewOnly?: boolean;
+  statusColor?: string;
+  statusText?: string;
+  duration?: string;
 }
 
 export interface Answer {
@@ -28,7 +38,7 @@ export interface Answer {
 }
 
 export interface ExerciseFeedback {
-  formateurId: string;
+  trainerId: string;
   comment: string;
   grade: number;
   submittedAt: string;

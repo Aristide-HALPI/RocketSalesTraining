@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import type { User } from '../types';
 import { Button } from '../components/ui/button';
 import { Archive, Trash2, UserCheck } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export default function UserManagement() {
   const { userProfile } = useAuth();
@@ -13,15 +14,15 @@ export default function UserManagement() {
 
   useEffect(() => {
     async function fetchUsers() {
-      if (userProfile?.role !== 'formateur') return;
+      // Only trainers can manage learners
+      if (userProfile?.role !== 'trainer' && userProfile?.role !== 'admin') return;
 
       try {
-        const usersRef = collection(db, 'Users');
-        const usersQuery = query(
-          usersRef,
-          where('role', '==', 'apprenant')
+        const q = query(
+          collection(db, 'users'),
+          where('role', '==', 'learner')
         );
-        const snapshot = await getDocs(usersQuery);
+        const snapshot = await getDocs(q);
         const usersData = snapshot.docs.map(doc => ({
           uid: doc.id,
           ...doc.data()
@@ -39,7 +40,7 @@ export default function UserManagement() {
 
   const updateUserStatus = async (userId: string, newStatus: User['status']) => {
     try {
-      await updateDoc(doc(db, 'Users', userId), {
+      await updateDoc(doc(db, 'users', userId), {
         status: newStatus
       });
       setUsers(users.map(user => 
@@ -50,10 +51,26 @@ export default function UserManagement() {
     }
   };
 
-  if (userProfile?.role !== 'formateur') {
+  // Only trainers and admins can access this page
+  if (userProfile?.role !== 'trainer' && userProfile?.role !== 'admin') {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-600">Access denied</div>
+      <div className="min-h-screen bg-gray-100 py-6 flex flex-col justify-center sm:py-12">
+        <div className="relative py-3 sm:max-w-xl sm:mx-auto">
+          <div className="relative px-4 py-10 bg-white shadow-lg sm:rounded-3xl sm:p-20">
+            <div className="max-w-md mx-auto">
+              <div className="divide-y divide-gray-200">
+                <div className="py-8 text-base leading-6 space-y-4 text-gray-700 sm:text-lg sm:leading-7">
+                  <p>You do not have permission to access this page.</p>
+                  <p>
+                    <Link to="/" className="text-teal-600 hover:text-teal-500">
+                      Return to Dashboard
+                    </Link>
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -65,6 +82,12 @@ export default function UserManagement() {
       </div>
     );
   }
+
+  // Sort users by role (admin first, then trainer, then learner)
+  const sortedUsers = users.sort((a, b) => {
+    const roleOrder = { admin: 0, trainer: 1, learner: 2 };
+    return roleOrder[a.role] - roleOrder[b.role];
+  });
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -92,7 +115,7 @@ export default function UserManagement() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {users.map((user) => (
+                {sortedUsers.map((user) => (
                   <tr key={user.uid}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">

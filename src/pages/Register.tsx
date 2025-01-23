@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Mail, Lock, User } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useAuth } from '../contexts/AuthContext';
-import type { User as UserType } from '../types/database';
+import type { User as UserType } from '../types/user';
 
 export default function Register() {
   const navigate = useNavigate();
@@ -29,12 +29,27 @@ export default function Register() {
       setError(null);
       setLoading(true);
 
+      const currentTime = new Date().toISOString();
       const userData: Partial<UserType> = {
         firstName,
         lastName,
-        name: `${firstName} ${lastName}`,
         email,
-        role: 'apprenant'
+        role: 'learner',
+        status: 'active',
+        createdAt: currentTime,
+        updatedAt: currentTime,
+        lastLogin: currentTime,
+        permissions: {
+          canManageExercises: false,
+          canManageUsers: false
+        },
+        metadata: {
+          lastUpdated: currentTime,
+          updatedBy: null,
+          lastLoginAt: currentTime,
+          lastActivityAt: currentTime,
+          version: 1
+        }
       };
 
       await register(email, password, userData);

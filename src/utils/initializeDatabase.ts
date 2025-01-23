@@ -11,7 +11,8 @@ export async function initializeSystemSettings() {
       autoApprove: false
     },
     metadata: {
-      lastUpdated: new Date().toISOString()
+      lastUpdated: new Date().toISOString(),
+      updatedBy: 'system'
     }
   };
 

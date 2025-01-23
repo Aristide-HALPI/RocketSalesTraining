@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Clock, XCircle, CheckCircle } from 'lucide-react';
+import { Clock, XCircle } from 'lucide-react';
 import { Button } from '../components/ui/button';
 
 interface User {
@@ -16,39 +16,169 @@ interface Exercise {
   id: string;
   title: string;
   description: string;
-  status: 'not_started' | 'in_progress' | 'completed' | 'pending_validation';
+  status: 'not_started' | 'in_progress' | 'completed' | 'pending_validation' | 'evaluated';
   score?: number;
   lastUpdated?: string;
-  type?: 'eisenhower' | 'welcome' | 'goalkeeper';
+  type?: 'eisenhower' | 'welcome' | 'goalkeeper' | 'sections' | 'solution' | 'rdv_decideur' | 'iiep' | 'presentation' | 'eombus' | 'cles' | 'cdab' | 'outil_cdab' | 'objections' | 'points_bonus' | 'points_role_final' | 'certification';
   isAutoCorrected?: boolean;
   isViewOnly?: boolean;
   statusColor?: string;
   statusText?: string;
+  duration?: string;
 }
 
-// Seuls Eisenhower et Bienvenue sont des exercices spéciaux
-const SPECIAL_EXERCISES = [
+// Liste complète des exercices disponibles dans l'ordre de la page principale
+const AVAILABLE_EXERCISES = [
+  {
+    id: 'welcome',
+    title: 'Bienvenue',
+    description: 'Message de bienvenue et instructions générales',
+    type: 'welcome' as const,
+    status: 'not_started' as const,
+    isViewOnly: true,
+    duration: '5 min'
+  },
+  {
+    id: 'solution',
+    title: 'Votre Solution',
+    description: 'Décrivez votre solution pour les exercices',
+    type: 'solution' as const,
+    status: 'not_started' as const,
+    isAutoCorrected: false,
+    duration: '15 min'
+  },
   {
     id: 'eisenhower',
     title: 'Matrice d\'Eisenhower',
-    description: 'Exercice de priorisation des tâches avec la matrice d\'Eisenhower',
+    description: 'Priorisez vos tâches avec la matrice d\'Eisenhower',
     type: 'eisenhower' as const,
     status: 'not_started' as const,
-    isAutoCorrected: true
+    isAutoCorrected: true,
+    duration: '20 min'
   },
   {
-    id: 'welcome',
-    title: 'Exercice de bienvenue',
-    description: 'Introduction à la formation',
-    type: 'welcome' as const,
+    id: 'goalkeeper',
+    title: 'Passer le Goalkeeper',
+    description: 'Exercice de vente avec la méthode Goalkeeper',
+    type: 'goalkeeper' as const,
     status: 'not_started' as const,
-    isViewOnly: true
+    isAutoCorrected: false,
+    duration: '25 min'
+  },
+  {
+    id: 'sections',
+    title: 'Les 3 sections',
+    description: 'Exercice sur les motivateurs, caractéristiques et concepts de vente',
+    type: 'sections' as const,
+    status: 'not_started' as const,
+    isAutoCorrected: false,
+    duration: '30 min'
+  },
+  {
+    id: 'rdv_decideur',
+    title: 'RDV avec le Décideur',
+    description: 'Simulation d\'un rendez-vous avec un décideur',
+    type: 'rdv_decideur' as const,
+    status: 'not_started' as const,
+    isAutoCorrected: false,
+    duration: '35 min'
+  },
+  {
+    id: 'iiep',
+    title: '(s\')IIEP',
+    description: 'Méthode IIEP pour structurer votre approche commerciale',
+    type: 'iiep' as const,
+    status: 'not_started' as const,
+    isAutoCorrected: false,
+    duration: '40 min'
+  },
+  {
+    id: 'presentation',
+    title: 'Présentation de votre société',
+    description: 'Techniques pour présenter efficacement votre entreprise',
+    type: 'presentation' as const,
+    status: 'not_started' as const,
+    isAutoCorrected: false,
+    duration: '35 min'
+  },
+  {
+    id: 'eombus',
+    title: 'EOMBUS-PAF-I',
+    description: 'Framework de qualification des opportunités',
+    type: 'eombus' as const,
+    status: 'not_started' as const,
+    isAutoCorrected: false,
+    duration: '120 min'
+  },
+  {
+    id: 'cles',
+    title: 'Les 3 Clés',
+    description: 'Points clés de la négociation',
+    type: 'cles' as const,
+    status: 'not_started' as const,
+    isAutoCorrected: false,
+    duration: '90 min'
+  },
+  {
+    id: 'cdab',
+    title: 'CDAB',
+    description: 'Apprenez à structurer votre discours avec la méthode CDAB',
+    type: 'cdab' as const,
+    status: 'not_started' as const,
+    isAutoCorrected: false,
+    duration: '25 min'
+  },
+  {
+    id: 'outil_cdab',
+    title: 'OUTIL CDAB',
+    description: 'Mettez en pratique la méthode CDAB sur différents scénarios',
+    type: 'outil_cdab' as const,
+    status: 'not_started' as const,
+    isAutoCorrected: false,
+    duration: '35 min'
+  },
+  {
+    id: 'objections',
+    title: 'Objections',
+    description: 'Gestion des objections clients',
+    type: 'objections' as const,
+    status: 'not_started' as const,
+    isAutoCorrected: false,
+    duration: '90 min'
+  },
+  {
+    id: 'points_bonus',
+    title: 'Points Bonus',
+    description: 'Techniques avancées et cas spéciaux',
+    type: 'points_bonus' as const,
+    status: 'not_started' as const,
+    isAutoCorrected: false,
+    duration: '60 min'
+  },
+  {
+    id: 'points_role_final',
+    title: 'Points - Jeu de Rôle final',
+    description: 'Mise en situation finale pour valider les acquis',
+    type: 'points_role_final' as const,
+    status: 'not_started' as const,
+    isAutoCorrected: false,
+    duration: '60 min'
+  },
+  {
+    id: 'certification',
+    title: 'Certification',
+    description: 'Bilan des résultats et certification finale',
+    type: 'certification' as const,
+    status: 'not_started' as const,
+    isAutoCorrected: false,
+    duration: '10 min'
   }
 ] as Exercise[];
 
 const getStatusColor = (status: Exercise['status']) => {
   switch (status) {
     case 'completed':
+    case 'evaluated':
       return 'text-green-600';
     case 'in_progress':
       return 'text-blue-600';
@@ -63,6 +193,8 @@ const getStatusText = (status: Exercise['status']) => {
   switch (status) {
     case 'completed':
       return 'Terminé';
+    case 'evaluated':
+      return 'Évalué';
     case 'in_progress':
       return 'En cours';
     case 'pending_validation':
@@ -82,9 +214,14 @@ export default function StudentExercises() {
 
   useEffect(() => {
     const fetchData = async () => {
+      if (!userId) return;
+
       try {
+        setLoading(true);
+        setError(null);
+
         // Récupérer les informations de l'étudiant
-        const studentDoc = await getDoc(doc(db, 'users', userId!));
+        const studentDoc = await getDoc(doc(db, 'users', userId));
         if (!studentDoc.exists()) {
           throw new Error('Étudiant non trouvé');
         }
@@ -96,67 +233,30 @@ export default function StudentExercises() {
           email: studentData.email || ''
         });
 
-        // Récupérer l'exercice de bienvenue (toujours visible)
-        const welcomeExercise = {
-          ...SPECIAL_EXERCISES[1],
-          status: 'completed' as const,
-          statusColor: getStatusColor('completed'),
-          statusText: getStatusText('completed')
-        };
+        // Récupérer tous les exercices de l'utilisateur
+        const userExercisesRef = collection(db, `users/${userId}/exercises`);
+        const userExercisesSnapshot = await getDocs(userExercisesRef);
+        const userExercises = new Map(
+          userExercisesSnapshot.docs.map(doc => [doc.id, doc.data()])
+        );
 
-        // Récupérer l'exercice Eisenhower s'il a été soumis
-        const eisenhowerDoc = await getDoc(doc(db, 'exercises', `eisenhower_${userId}`));
-        let eisenhowerExercise: Exercise | null = null;
-        if (eisenhowerDoc.exists() && eisenhowerDoc.data().isSubmitted) {
-          const eisenhowerData = eisenhowerDoc.data();
-          eisenhowerExercise = {
-            ...SPECIAL_EXERCISES[0],
-            status: 'completed' as const,
-            score: eisenhowerData.score,
-            lastUpdated: eisenhowerData.lastUpdated,
-            statusColor: getStatusColor('completed'),
-            statusText: getStatusText('completed')
+        // Créer la liste complète des exercices avec leur statut
+        const allExercises = AVAILABLE_EXERCISES.map(exercise => {
+          const userExercise = userExercises.get(exercise.id);
+          return {
+            ...exercise,
+            status: userExercise?.status || 'not_started',
+            score: userExercise?.score,
+            lastUpdated: userExercise?.lastUpdated,
+            statusColor: getStatusColor(userExercise?.status || 'not_started'),
+            statusText: getStatusText(userExercise?.status || 'not_started')
           };
-        }
-
-        // Récupérer l'exercice Goalkeeper s'il existe
-        const goalkeeperDoc = await getDoc(doc(db, `users/${userId}/exercises/goalkeeper`));
-        let goalkeeperExercise: Exercise | null = null;
-        if (goalkeeperDoc.exists()) {
-          const goalkeeperData = goalkeeperDoc.data();
-          const status = goalkeeperData.status === 'submitted' 
-            ? (goalkeeperData.evaluation?.evaluatedAt ? 'completed' : 'pending_validation')
-            : 'in_progress';
-          const score = goalkeeperData.evaluation?.totalScore;
-          const lastUpdated = goalkeeperData.updatedAt || goalkeeperData.submittedAt;
-          const statusColor = getStatusColor(status);
-          const statusText = getStatusText(status);
-          goalkeeperExercise = {
-            id: 'goalkeeper',
-            title: 'Exercice Goalkeeper',
-            description: 'Exercice de dialogue commercial',
-            type: 'goalkeeper' as const,
-            status,
-            score,
-            lastUpdated,
-            statusColor,
-            statusText
-          };
-        }
-
-        // Combiner tous les exercices
-        const allExercises = [
-          welcomeExercise,
-          ...(eisenhowerExercise ? [eisenhowerExercise] : []),
-          ...(goalkeeperExercise ? [goalkeeperExercise] : [])
-        ].filter((exercise): exercise is Exercise => exercise !== null);
-
-        // Trier les exercices par titre
-        allExercises.sort((a, b) => a.title.localeCompare(b.title));
+        });
 
         setExercises(allExercises);
       } catch (err) {
-        setError(err as Error);
+        console.error('Erreur lors du chargement des données:', err);
+        setError(err instanceof Error ? err : new Error('Une erreur est survenue'));
       } finally {
         setLoading(false);
       }
@@ -165,52 +265,61 @@ export default function StudentExercises() {
     fetchData();
   }, [userId]);
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'not_started':
-        return <XCircle className="h-5 w-5 text-gray-400" />;
-      case 'in_progress':
-        return <Clock className="h-5 w-5 text-yellow-500" />;
-      case 'completed':
-        return <CheckCircle className="h-5 w-5 text-green-500" />;
-      case 'pending_validation':
-        return <CheckCircle className="h-5 w-5 text-orange-500" />;
+  const handleExerciseClick = (exercise: Exercise) => {
+    if (!userId) return;
+    
+    switch (exercise.type) {
+      case 'eisenhower':
+        navigate(`/eisenhower?userId=${userId}`);
+        break;
+      case 'welcome':
+        navigate(`/welcome?userId=${userId}`);
+        break;
+      case 'goalkeeper':
+        navigate(`/goalkeeper/${userId}`);
+        break;
+      case 'sections':
+        navigate(`/sections?userId=${userId}`);
+        break;
+      case 'solution':
+        navigate(`/solution?userId=${userId}`);
+        break;
+      case 'rdv_decideur':
+        navigate(`/rdv-decideur?userId=${userId}`);
+        break;
+      case 'iiep':
+        navigate(`/iiep?userId=${userId}`);
+        break;
+      case 'presentation':
+        navigate(`/presentation?userId=${userId}`);
+        break;
+      case 'eombus':
+        navigate(`/eombus?userId=${userId}`);
+        break;
+      case 'cles':
+        navigate(`/cles?userId=${userId}`);
+        break;
+      case 'cdab':
+        navigate(`/cdab?userId=${userId}`);
+        break;
+      case 'outil_cdab':
+        navigate(`/outil-cdab?userId=${userId}`);
+        break;
+      case 'objections':
+        navigate(`/objections?userId=${userId}`);
+        break;
+      case 'points_bonus':
+        navigate(`/points-bonus?userId=${userId}`);
+        break;
+      case 'points_role_final':
+        navigate(`/points-role-final?userId=${userId}`);
+        break;
+      case 'certification':
+        navigate(`/certification?userId=${userId}`);
+        break;
       default:
-        return null;
+        console.warn('Type d\'exercice non géré:', exercise.type);
     }
-  };
-
-  const getActionButton = (exercise: Exercise) => {
-    if (exercise.type === 'eisenhower' || exercise.type === 'welcome') {
-      return (
-        <Button
-          onClick={() => navigate(`/${exercise.type}?userId=${userId}&mode=view`)}
-          className="inline-flex items-center px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md"
-        >
-          Voir
-        </Button>
-      );
-    }
-
-    if (exercise.type === 'goalkeeper') {
-      return (
-        <Button
-          onClick={() => navigate(`/features/goalkeeper?studentId=${userId}`)}
-          className="inline-flex items-center px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md"
-        >
-          {exercise.status === 'pending_validation' ? 'Évaluer' : 'Voir'}
-        </Button>
-      );
-    }
-
-    return (
-      <Button
-        onClick={() => navigate(`/${exercise.type}?studentId=${userId}&mode=evaluation`)}
-        className="inline-flex items-center px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md"
-      >
-        Évaluer
-      </Button>
-    );
   };
 
   if (loading) {
@@ -223,20 +332,18 @@ export default function StudentExercises() {
 
   if (error) {
     return (
-      <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0">
-          <div className="bg-red-50 border border-red-200 rounded-md p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-red-800">Erreur lors du chargement des exercices</h3>
-                <div className="mt-2 text-sm text-red-700">
-                  <p>{error.message}</p>
-                </div>
+      <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        <div className="bg-red-50 border border-red-200 rounded-md p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <XCircle className="h-5 w-5 text-red-400" />
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-red-800">
+                Erreur lors du chargement des exercices
+              </h3>
+              <div className="mt-2 text-sm text-red-700">
+                {error.message}
               </div>
             </div>
           </div>
@@ -246,67 +353,54 @@ export default function StudentExercises() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-      <div className="px-4 py-6 sm:px-0">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-semibold text-gray-900">
-            Exercices de {student ? `${student.firstName} ${student.lastName}` : ''}
+    <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+      {student && (
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">
+            Exercices de {student.firstName} {student.lastName}
           </h1>
-          <Button
-            onClick={() => navigate('/members')}
-            className="bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-md"
-          >
-            Retour à la liste des membres
-          </Button>
+          <p className="mt-1 text-sm text-gray-500">{student.email}</p>
         </div>
+      )}
 
-        <div className="bg-white shadow overflow-hidden sm:rounded-md">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Exercice
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Description
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Statut
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Note
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Action
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {exercises.map((exercise) => (
-                <tr key={exercise.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {exercise.title}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {exercise.description}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      {getStatusIcon(exercise.status)}
-                      <span className={`ml-2 ${exercise.statusColor}`}>{exercise.statusText}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {exercise.score !== undefined ? `${exercise.score}/30` : '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    {getActionButton(exercise)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+        <ul className="divide-y divide-gray-200">
+          {exercises.map((exercise) => (
+            <li key={exercise.id} className="p-4 hover:bg-gray-50 cursor-pointer" onClick={() => handleExerciseClick(exercise)}>
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <h3 className="text-lg font-medium text-gray-900">{exercise.title}</h3>
+                  <p className="mt-1 text-sm text-gray-500">{exercise.description}</p>
+                  {exercise.duration && (
+                    <p className="mt-1 text-sm text-gray-500">Durée: {exercise.duration}</p>
+                  )}
+                </div>
+                <div className="ml-4 flex items-center">
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${exercise.statusColor}`}>
+                    <Clock className="mr-1 h-4 w-4" />
+                    {exercise.statusText}
+                  </span>
+                  {exercise.score !== undefined && (
+                    <span className="ml-4 text-sm font-medium text-gray-900">
+                      Score: {exercise.score}
+                    </span>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-4"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleExerciseClick(exercise);
+                    }}
+                  >
+                    Voir
+                  </Button>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );

@@ -2,7 +2,6 @@ import { FC, useEffect, useState } from 'react';
 import { doc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { BackButton } from '../components/BackButton';
-import { Card, CardContent } from '../components/Card';
 import { useExercisePersistence } from '../hooks/useExercisePersistence';
 import { TaskAnswer, Priority } from '../types/eisenhower';
 import { initialTasks } from '../data/eisenhowerTasks';
@@ -243,7 +242,7 @@ export const EisenhowerExercise: FC = () => {
                       type="radio"
                       name={`priority-${task.id}`}
                       value={priority}
-                      checked={answers.find(a => a.taskId === task.id)?.selectedPriority === priority}
+                      checked={answers.find(a => a.taskId === task.id)?.selectedPriority === priority || false}
                       onChange={() => !isReadOnly && handlePriorityChange(task.id, priority as Priority)}
                       className="form-radio h-4 w-4 text-blue-600"
                       disabled={isReadOnly || isSubmitted}

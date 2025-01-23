@@ -1,6 +1,6 @@
-export type UserRole = 'apprenant' | 'formateur' | 'admin';
+export type UserRole = 'admin' | 'trainer' | 'learner';
 export type UserStatus = 'actif' | 'inactif' | 'suspendu';
-export type ExerciseStatus = 'à débuter' | 'en cours' | 'terminé';
+export type ExerciseStatus = 'draft' | 'published' | 'archived';
 export type ExerciseDifficulty = 'débutant' | 'intermédiaire' | 'avancé';
 export type ResourceType = 'pdf' | 'video' | 'link';
 
@@ -44,6 +44,7 @@ export interface SystemSettings {
     enabled: boolean;
     trainerCodeRequired: boolean;
     trainerCode?: string;
+    autoApprove: boolean;
   };
   metadata: {
     lastUpdated: string; // ISO string
@@ -228,8 +229,8 @@ export interface LogDetails {
   type: string;
   resourceId: string;
   description: string;
-  previousState?: any;
-  newState?: any;
+  previousState?: Record<string, unknown>;
+  newState?: Record<string, unknown>;
 }
 
 export interface Log {

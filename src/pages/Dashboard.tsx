@@ -11,19 +11,22 @@ export default function Dashboard() {
       title: 'Exercices complétés',
       value: '0',
       icon: CheckCircle,
-      color: 'text-teal-600'
+      color: 'text-teal-600',
+      link: userProfile?.role === 'trainer' ? '/evaluations' : '/exercises'
     },
     {
-      title: 'Exercices disponibles',
+      title: userProfile?.role === 'trainer' ? 'Exercices à évaluer' : 'Exercices disponibles',
       value: '16',
       icon: BookOpen,
-      color: 'text-teal-600'
+      color: 'text-teal-600',
+      link: userProfile?.role === 'trainer' ? '/evaluations/pending' : '/exercises/available'
     },
     {
-      title: "Temps d'apprentissage",
+      title: userProfile?.role === 'trainer' ? 'Temps moyen d\'évaluation' : 'Temps d\'apprentissage',
       value: '0.0h',
       icon: Clock,
-      color: 'text-teal-600'
+      color: 'text-teal-600',
+      link: userProfile?.role === 'trainer' ? '/statistics/evaluation' : '/statistics/learning'
     }
   ];
 
@@ -139,11 +142,12 @@ export default function Dashboard() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-3 mb-8">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {stats.map((stat, index) => (
-          <div
+          <Link
             key={index}
-            className="bg-white overflow-hidden shadow rounded-lg"
+            to={stat.link || '#'}
+            className="relative overflow-hidden rounded-lg bg-white px-4 pb-12 pt-5 shadow sm:px-6 sm:pt-6"
           >
             <div className="p-5">
               <div className="flex items-center">
@@ -162,7 +166,7 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
 

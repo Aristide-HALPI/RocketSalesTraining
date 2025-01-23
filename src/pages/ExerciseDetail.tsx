@@ -152,8 +152,9 @@ export default function ExerciseDetail() {
               </h2>
               <ExerciseEvaluation
                 exercise={exercise}
+                exerciseId={exercise.id}
                 userExercise={userExercise}
-                onEvaluate={loadExercise}
+                onEvaluationComplete={loadExercise}
               />
             </>
           ) : (

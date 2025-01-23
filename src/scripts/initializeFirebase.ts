@@ -1,4 +1,4 @@
-import { getFirestore, collection, doc, setDoc } from 'firebase/firestore';
+import { collection, doc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
 const exercises = [

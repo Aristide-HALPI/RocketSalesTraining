@@ -94,10 +94,17 @@ export default function Login() {
           <div>
             <Button
               type="submit"
-              className="w-full bg-teal-600 hover:bg-teal-700 text-white"
+              className="w-full bg-teal-600 hover:bg-teal-700 text-white flex items-center justify-center gap-2"
               disabled={loading}
             >
-              {loading ? 'Connexion en cours...' : 'Se connecter'}
+              {loading ? (
+                'Connexion en cours...'
+              ) : (
+                <>
+                  <LogIn className="h-5 w-5" />
+                  Se connecter
+                </>
+              )}
             </Button>
           </div>
 

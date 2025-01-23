@@ -1,6 +1,6 @@
 export interface User {
   uid: string;
-  role: 'apprenant' | 'formateur';
+  role: 'learner' | 'trainer';
   name: string;
   email: string;
   status: 'actif' | 'archivé' | 'supprimé';
@@ -24,5 +24,5 @@ export interface UserExercise {
   responses: Record<string, string>;
   generalComment?: string;
   finalScore?: number;
-  formateurId?: string;
+  trainerId?: string;
 }

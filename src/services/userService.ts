@@ -1,13 +1,8 @@
 import { db, auth } from '../lib/firebase';
 import { collection, doc, getDoc, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
 import { deleteUser as deleteAuthUser } from 'firebase/auth';
-import { User, UserRole, UserStatus } from '../types/user';
-
-const convertRole = (role: string): UserRole => {
-  if (role === 'apprenant') return 'learner';
-  if (role === 'formateur') return 'trainer';
-  return role as UserRole;
-};
+import { User, UserStatus } from '../types/user';
+import { convertLegacyRole } from './roleUtils';
 
 const convertStatus = (status: string): UserStatus => {
   if (status === 'actif') return 'active';
@@ -26,7 +21,7 @@ export const userService = {
       const data = doc.data();
       return { 
         ...data, 
-        role: convertRole(data.role),
+        role: convertLegacyRole(data.role),
         status: convertStatus(data.status),
         uid: doc.id 
       } as User;

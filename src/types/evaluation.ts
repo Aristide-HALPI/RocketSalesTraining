@@ -36,12 +36,27 @@ export interface EvaluationCriterion {
   feedback: string;
 }
 
+export interface ScoringCriteria {
+  id: string;
+  name: string;
+  description: string;
+  maxPoints: number;
+  scoreOptions: number[];
+  required: boolean;
+  score: number;
+  feedback: string;
+}
+
 export interface Evaluation {
   totalScore: number;
   criteria: EvaluationCriterion[];
   comments: string;
   evaluatedBy: string | null;
   evaluatedAt: string | null;
+  status: EvaluationStatus;
+  workflow: EvaluationWorkflow;
+  aiEvaluation?: AIEvaluation;
+  trainerReview?: TrainerReview;
 }
 
 export interface AIEvaluation {
@@ -75,7 +90,7 @@ export interface EvaluationState {
 }
 
 // Type générique pour les exercices
-export interface Exercise<T = any> {
+export interface Exercise<T = Record<string, unknown>> {
   id: string;
   type: ExerciseType;
   userId: string;
@@ -94,7 +109,7 @@ export interface Exercise<T = any> {
 
 export interface ExerciseSubmission {
   type: string;
-  content: any;
+  content: Record<string, unknown>;
   status: 'draft' | 'submitted' | 'evaluated';
   evaluation?: Evaluation;
   submittedAt: string;

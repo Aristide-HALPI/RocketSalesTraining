@@ -1,9 +1,8 @@
-import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Archive, Trash2, Eye } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useUsers } from '../hooks/useUsers';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { userService } from '../services/userService';
 import type { User, UserRole } from '../types/user';
 import { useAuth } from '../contexts/AuthContext';
@@ -66,31 +65,6 @@ export default function MemberManagement() {
       setSelectedUser(null);
       setActionType(null);
     }
-  };
-
-  const canShowActions = (user: User) => {
-    const isAdmin = userProfile?.role === 'admin';
-    const isTrainerManagingLearner = userProfile?.role === 'trainer' && user.role === 'learner';
-    const isNotSelf = user.uid !== userProfile?.uid;
-    
-    console.log('Checking actions for user:', JSON.stringify({
-      user: {
-        uid: user.uid,
-        email: user.email,
-        role: user.role
-      },
-      userProfile: {
-        uid: userProfile?.uid,
-        email: userProfile?.email,
-        role: userProfile?.role
-      },
-      isAdmin,
-      isTrainerManagingLearner,
-      isNotSelf,
-      shouldShow: (isAdmin || isTrainerManagingLearner) && isNotSelf
-    }, null, 2));
-    
-    return (isAdmin || isTrainerManagingLearner) && isNotSelf;
   };
 
   // Vérifier si l'utilisateur actuel peut modifier un utilisateur donné
@@ -253,7 +227,7 @@ export default function MemberManagement() {
                     )}
                     
                     {/* Boutons d'action selon les droits */}
-                    {canShowActions(user) && (
+                    {canModifyUser(user) && (
                         <>
                           <Button
                             onClick={() => handleArchive(user)}

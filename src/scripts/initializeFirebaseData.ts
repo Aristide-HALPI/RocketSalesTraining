@@ -27,7 +27,7 @@ const sampleUsers: User[] = [
     lastName: 'Admin',
     fullName: 'Aristide Admin',
     email: 'Aristide@halpi.be',
-    status: 'actif',
+    status: 'active',
     createdAt: currentTime,
     updatedAt: currentTime,
     lastLogin: currentTime,
@@ -51,12 +51,12 @@ const sampleUsers: User[] = [
   },
   {
     uid: 'trainer1',
-    role: 'formateur',
+    role: 'trainer',
     firstName: 'Manzi',
     lastName: 'Aristide',
     fullName: 'Manzi Aristide',
     email: 'Manzi.d.Aristide@gmail.com',
-    status: 'actif',
+    status: 'active',
     createdAt: currentTime,
     updatedAt: currentTime,
     lastLogin: currentTime,
@@ -89,7 +89,7 @@ const sampleExercises: Exercise[] = [
     description: 'Premier exercice de la formation',
     category: 'Vente',
     userId: 'user1',
-    status: 'en cours',
+    status: 'in_progress',
     startedAt: currentTime,
     submittedAt: '',
     timeSpent: 0,
@@ -116,19 +116,26 @@ async function initializeCollection<T extends WithFieldValue<DocumentData>>(
   console.log(`${collectionName} collection initialized`);
 }
 
-async function main() {
+// Fonction principale d'initialisation
+export async function initializeFirebaseData(): Promise<void> {
   try {
+    console.log('Début de l\'initialisation...');
+    
+    // Initialiser chaque collection
     await initializeCollection('users', sampleUsers);
     await initializeCollection('exercises', sampleExercises);
     
-    console.log('Database initialization completed successfully');
+    console.log('Initialisation terminée avec succès');
   } catch (error) {
-    console.error('Error initializing database:', error);
+    console.error('Erreur lors de l\'initialisation:', error);
     throw error;
   }
 }
 
-main().catch(error => {
-  console.error('Unhandled error:', error);
-  process.exit(1);
-});
+// Exécuter si appelé directement
+if (require.main === module) {
+  initializeFirebaseData().catch(error => {
+    console.error('Unhandled error:', error);
+    process.exit(1);
+  });
+}

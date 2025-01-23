@@ -2,7 +2,13 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Evaluation } from '../types/evaluation';
+import { 
+  Evaluation, 
+  EvaluationWorkflow,
+  EvaluationStatus,
+  AIEvaluation,
+  TrainerReview 
+} from '../types/evaluation';
 
 interface UseExerciseEvaluationProps {
   exerciseId: string;
@@ -15,7 +21,7 @@ export const useExerciseEvaluation = ({ exerciseId, initialEvaluation }: UseExer
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const isFormateur = userProfile?.role === 'formateur' || userProfile?.role === 'admin';
+  const isFormateur = userProfile?.role === 'trainer' || userProfile?.role === 'admin';
 
   // Charger l'évaluation depuis Firestore
   const loadEvaluation = async () => {
@@ -51,7 +57,7 @@ export const useExerciseEvaluation = ({ exerciseId, initialEvaluation }: UseExer
   // Mettre à jour l'évaluation
   const updateEvaluation = async (newEvaluation: Evaluation) => {
     if (!userProfile?.uid || !isFormateur) {
-      setError(new Error('Seuls les formateurs peuvent modifier l\'évaluation'));
+      setError(new Error('Only trainers can modify the evaluation'));
       return;
     }
 
@@ -76,6 +82,47 @@ export const useExerciseEvaluation = ({ exerciseId, initialEvaluation }: UseExer
     }
   };
 
+  const updateWorkflow = async (workflow: EvaluationWorkflow) => {
+    if (!evaluation || !isFormateur) {
+      throw new Error('Permission denied or no evaluation exists');
+    }
+
+    const updatedEvaluation = {
+      ...evaluation,
+      workflow
+    };
+
+    await updateEvaluation(updatedEvaluation);
+  };
+
+  const saveAIEvaluation = async (aiEvaluation: AIEvaluation) => {
+    if (!evaluation || !isFormateur) {
+      throw new Error('Permission denied or no evaluation exists');
+    }
+
+    const updatedEvaluation = {
+      ...evaluation,
+      aiEvaluation,
+      status: 'ai_evaluated' as EvaluationStatus
+    };
+
+    await updateEvaluation(updatedEvaluation);
+  };
+
+  const saveTrainerReview = async (trainerReview: TrainerReview) => {
+    if (!evaluation || !isFormateur) {
+      throw new Error('Permission denied or no evaluation exists');
+    }
+
+    const updatedEvaluation = {
+      ...evaluation,
+      trainerReview,
+      status: 'published' as EvaluationStatus
+    };
+
+    await updateEvaluation(updatedEvaluation);
+  };
+
   useEffect(() => {
     loadEvaluation();
   }, [exerciseId]);
@@ -84,7 +131,11 @@ export const useExerciseEvaluation = ({ exerciseId, initialEvaluation }: UseExer
     evaluation,
     loading,
     error,
+    isFormateur,
     updateEvaluation,
+    updateWorkflow,
+    saveAIEvaluation,
+    saveTrainerReview,
     loadEvaluation
   };
 };

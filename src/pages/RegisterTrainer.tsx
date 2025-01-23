@@ -28,16 +28,15 @@ export default function RegisterTrainer() {
     e.preventDefault();
     
     if (formData.password !== formData.confirmPassword) {
-      return setError('Les mots de passe ne correspondent pas');
+      return setError('Passwords do not match');
     }
 
-    if (!settings?.registration.enabled) {
-      return setError('L\'inscription des formateurs est actuellement désactivée');
+    if (!settings?.registration?.enabled) {
+      return setError('Trainer registration is currently disabled');
     }
 
-    if (settings?.registration.trainerCodeRequired && 
-        formData.trainerCode !== settings.registration.trainerCode) {
-      return setError('Code formateur invalide');
+    if (settings?.registration?.trainerCodeRequired && formData.trainerCode !== settings?.registration?.trainerCode) {
+      return setError('Invalid trainer code');
     }
 
     try {
@@ -46,12 +45,13 @@ export default function RegisterTrainer() {
       await register(formData.email, formData.password, {
         firstName: formData.firstName,
         lastName: formData.lastName,
-        role: 'formateur'
+        email: formData.email,
+        role: 'trainer'
       });
       navigate('/');
     } catch (err) {
       console.error('Registration error:', err);
-      setError('Échec de la création du compte');
+      setError('Failed to create account');
     } finally {
       setLoading(false);
     }
@@ -60,7 +60,7 @@ export default function RegisterTrainer() {
   if (settingsLoading) {
     return (
       <div className="min-h-screen bg-teal-800 flex items-center justify-center">
-        <div className="text-white">Chargement...</div>
+        <div className="text-white">Loading...</div>
       </div>
     );
   }
@@ -72,7 +72,7 @@ export default function RegisterTrainer() {
           <div className="text-red-600">{settingsError}</div>
           <div className="mt-4">
             <Link to="/login" className="text-teal-600 hover:text-teal-500">
-              Retour à la connexion
+              Back to login
             </Link>
           </div>
         </div>
@@ -80,16 +80,18 @@ export default function RegisterTrainer() {
     );
   }
 
-  if (!settings?.registration.enabled) {
+  if (!settings?.registration?.enabled) {
     return (
       <div className="min-h-screen bg-teal-800 flex items-center justify-center">
         <div className="bg-white p-8 rounded-xl shadow-2xl">
-          <div className="text-gray-900">
-            L'inscription des formateurs est actuellement désactivée.
+          <div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded relative">
+            <p className="block sm:inline">
+              Trainer registration is currently disabled.
+            </p>
           </div>
           <div className="mt-4">
             <Link to="/login" className="text-teal-600 hover:text-teal-500">
-              Retour à la connexion
+              Back to login
             </Link>
           </div>
         </div>
@@ -102,10 +104,10 @@ export default function RegisterTrainer() {
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-xl shadow-2xl">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Inscription Formateur
+            Create your trainer account to get started
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            Créez votre compte formateur pour commencer
+            Create your account to begin
           </p>
         </div>
 
@@ -127,7 +129,7 @@ export default function RegisterTrainer() {
                 type="text"
                 required
                 className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-teal-500 focus:border-teal-500 focus:z-10 sm:text-sm"
-                placeholder="Prénom"
+                placeholder="First name"
                 value={formData.firstName}
                 onChange={handleInputChange}
               />
@@ -139,7 +141,7 @@ export default function RegisterTrainer() {
                 type="text"
                 required
                 className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-teal-500 focus:border-teal-500 focus:z-10 sm:text-sm"
-                placeholder="Nom"
+                placeholder="Last name"
                 value={formData.lastName}
                 onChange={handleInputChange}
               />
@@ -151,7 +153,7 @@ export default function RegisterTrainer() {
                 type="email"
                 required
                 className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-teal-500 focus:border-teal-500 focus:z-10 sm:text-sm"
-                placeholder="Adresse e-mail"
+                placeholder="Email address"
                 value={formData.email}
                 onChange={handleInputChange}
               />
@@ -163,7 +165,7 @@ export default function RegisterTrainer() {
                 type="password"
                 required
                 className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-teal-500 focus:border-teal-500 focus:z-10 sm:text-sm"
-                placeholder="Mot de passe"
+                placeholder="Password"
                 value={formData.password}
                 onChange={handleInputChange}
               />
@@ -175,20 +177,20 @@ export default function RegisterTrainer() {
                 type="password"
                 required
                 className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-teal-500 focus:border-teal-500 focus:z-10 sm:text-sm"
-                placeholder="Confirmer le mot de passe"
+                placeholder="Confirm password"
                 value={formData.confirmPassword}
                 onChange={handleInputChange}
               />
             </div>
 
-            {settings?.registration.trainerCodeRequired && (
+            {settings?.registration?.trainerCodeRequired && (
               <div>
                 <input
                   name="trainerCode"
                   type="text"
                   required
-                  className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-teal-500 focus:border-teal-500 focus:z-10 sm:text-sm"
-                  placeholder="Code formateur"
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500 sm:text-sm"
+                  placeholder="Trainer code"
                   value={formData.trainerCode}
                   onChange={handleInputChange}
                 />
@@ -202,7 +204,7 @@ export default function RegisterTrainer() {
               className="w-full flex justify-center py-2 px-4"
               disabled={loading}
             >
-              {loading ? 'Inscription...' : 'S\'inscrire'}
+              {loading ? 'Registering...' : 'Register'}
             </Button>
           </div>
         </form>
@@ -214,7 +216,7 @@ export default function RegisterTrainer() {
             </div>
             <div className="relative flex justify-center text-sm">
               <span className="px-2 bg-white text-gray-500">
-                Déjà inscrit ?
+                Already registered?
               </span>
             </div>
           </div>
@@ -224,7 +226,7 @@ export default function RegisterTrainer() {
               to="/login"
               className="font-medium text-teal-600 hover:text-teal-500"
             >
-              Connectez-vous
+              Login
             </Link>
           </div>
         </div>

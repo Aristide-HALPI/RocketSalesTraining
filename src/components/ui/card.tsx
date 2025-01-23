@@ -1,9 +1,7 @@
 import { FC, HTMLAttributes } from 'react'
 import { cn } from '@/lib/utils'
 
-interface CardProps extends HTMLAttributes<HTMLDivElement> {}
-
-export const Card: FC<CardProps> = ({ className, ...props }) => {
+export const Card: FC<HTMLAttributes<HTMLDivElement>> = ({ className, ...props }) => {
   return (
     <div
       className={cn(

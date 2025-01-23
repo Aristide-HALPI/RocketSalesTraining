@@ -84,7 +84,7 @@ export default function ExerciseForm({ initialData, onSubmit }: ExerciseFormProp
         tags,
         metadata,
         prerequisites: initialData?.prerequisites || [],
-        status: initialData?.status || 'à débuter',
+        status: initialData?.status || 'draft',
         startedAt: initialData?.startedAt || currentTime,
         submittedAt: initialData?.submittedAt || '',
         timeSpent: initialData?.timeSpent || 0,
