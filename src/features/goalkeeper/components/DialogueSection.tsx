@@ -22,7 +22,10 @@ export const DialogueSection: React.FC<DialogueSectionProps> = ({
   onUpdateLine,
   onUpdateFeedback,
 }) => {
-  if (!section) {
+  console.log('DialogueSection props:', { title, section, isFormateur, isSubmitted });
+  
+  if (!section || !section.lines) {
+    console.warn('Section or lines is missing:', section);
     return <div>Chargement...</div>;
   }
 
@@ -37,38 +40,25 @@ export const DialogueSection: React.FC<DialogueSectionProps> = ({
           <div className="col-span-4">Commentaires du Formateur</div>
         </div>
 
-        {section.lines.map((line, index) => (
-          <div key={line.id} className="grid grid-cols-12 gap-4 items-start bg-white rounded-lg">
-            <div className="col-span-1 p-4 text-sm text-blue-600">
-              {index + 1}
-            </div>
-            <div className="col-span-2 p-4">
-              <div className={`text-sm ${line.speaker === 'goalkeeper' ? 'text-red-600' : 'text-blue-600'}`}>
-                {line.speaker === 'goalkeeper' ? 'Le/La Goalkeeper:' : 'Vous (commercial):'}
+        {section.lines.map((line, index) => {
+          console.log(`Rendering line ${index}:`, line);
+          return (
+            <div key={line.id} className="grid grid-cols-12 gap-4 items-start bg-white rounded-lg">
+              <div className="col-span-1 p-4 text-sm text-blue-600">
+                {index + 1}
               </div>
-            </div>
-            <div className="col-span-5 p-4">
-              <textarea
-                value={line.text || ''}
-                onChange={(e) => onUpdateLine(index, e.target.value)}
-                disabled={isSubmitted || isFormateur}
-                placeholder="Écrivez votre dialogue ici..."
-                className="w-full min-h-[80px] p-2 text-sm border border-gray-200 rounded resize-y focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-700"
-                style={{ height: 'auto', overflow: 'hidden' }}
-                onInput={(e) => {
-                  const target = e.target as HTMLTextAreaElement;
-                  target.style.height = 'auto';
-                  target.style.height = target.scrollHeight + 'px';
-                }}
-              />
-            </div>
-            <div className="col-span-4 p-4">
-              {isFormateur ? (
+              <div className="col-span-2 p-4">
+                <div className={`text-sm ${line.speaker === 'goalkeeper' ? 'text-red-600' : 'text-blue-600'}`}>
+                  {line.speaker === 'goalkeeper' ? 'Le/La Goalkeeper:' : 'Vous (commercial):'}
+                </div>
+              </div>
+              <div className="col-span-5 p-4">
                 <textarea
-                  value={line.feedback || ''}
-                  onChange={(e) => onUpdateFeedback(index, e.target.value)}
-                  placeholder="Ajouter un commentaire..."
-                  className="w-full min-h-[80px] p-2 text-sm border border-gray-300 rounded resize-y bg-gray-50 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  value={line.text || ''}
+                  onChange={(e) => onUpdateLine(index, e.target.value)}
+                  disabled={isSubmitted || isFormateur}
+                  placeholder="Écrivez votre dialogue ici..."
+                  className="w-full min-h-[80px] p-2 text-sm border border-gray-200 rounded resize-y focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-700"
                   style={{ height: 'auto', overflow: 'hidden' }}
                   onInput={(e) => {
                     const target = e.target as HTMLTextAreaElement;
@@ -76,19 +66,35 @@ export const DialogueSection: React.FC<DialogueSectionProps> = ({
                     target.style.height = target.scrollHeight + 'px';
                   }}
                 />
-              ) : (
-                <div 
-                  className="text-sm text-gray-500 italic p-2 border border-gray-200 rounded min-h-[80px] bg-gray-50 whitespace-pre-wrap"
-                  style={{ height: 'auto' }}
-                >
-                  {isSubmitted 
-                    ? (line.feedback || 'Pas de commentaire')
-                    : 'Les commentaires et la note apparaîtront ici après la soumission'}
-                </div>
-              )}
+              </div>
+              <div className="col-span-4 p-4">
+                {isFormateur ? (
+                  <textarea
+                    value={line.feedback || ''}
+                    onChange={(e) => onUpdateFeedback(index, e.target.value)}
+                    placeholder="Ajouter un commentaire..."
+                    className="w-full min-h-[80px] p-2 text-sm border border-gray-300 rounded resize-y bg-gray-50 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    style={{ height: 'auto', overflow: 'hidden' }}
+                    onInput={(e) => {
+                      const target = e.target as HTMLTextAreaElement;
+                      target.style.height = 'auto';
+                      target.style.height = target.scrollHeight + 'px';
+                    }}
+                  />
+                ) : (
+                  <div 
+                    className="text-sm text-gray-500 italic p-2 border border-gray-200 rounded min-h-[80px] bg-gray-50 whitespace-pre-wrap"
+                    style={{ height: 'auto' }}
+                  >
+                    {isSubmitted 
+                      ? (line.feedback || 'Pas de commentaire')
+                      : 'Les commentaires et la note apparaîtront ici après la soumission'}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {!isSubmitted && !isFormateur && (
           <div className="flex justify-end space-x-3 mt-4">
