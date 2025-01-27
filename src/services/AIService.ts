@@ -1,7 +1,8 @@
 import { db } from '../lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { DialogueLine } from '../features/goalkeeper/types';
-import { EvaluationState } from '../types/evaluation';
+import type { EvaluationStatus } from '../types/evaluation';
+import { createThread, createThreadMessage } from '../api/ai/route';
 
 export interface AIEvaluationCriterion {
   id: string;
@@ -19,6 +20,7 @@ export interface AIEvaluationResponse {
   strengths: string[];
   improvements: string[];
   criteria: AIEvaluationCriterion[];
+  threadId?: string;
   // Scores et feedbacks par section et question
   scores?: number[][];
   feedbacks?: string[][];
@@ -30,29 +32,33 @@ export interface ExerciseEvaluationRequest {
   sections?: any[];
 }
 
-const AI_API_URL = import.meta.env.VITE_AI_API_URL || 'https://api.example.com';
-const AI_API_KEY = import.meta.env.VITE_AI_API_KEY;
+const ORGANIZATION_ID = import.meta.env.VITE_FABRILE_ORG_ID;
+const AGENT_ID = import.meta.env.VITE_FABRILE_BOT_ID;
 
 export const AIService = {
   async evaluateDialogue(lines: DialogueLine[]): Promise<AIEvaluationResponse> {
     try {
+      // Créer un nouveau thread pour cette conversation
+      const thread = await createThread(ORGANIZATION_ID, AGENT_ID);
+      const threadId = thread.id;
+
+      // Formater le dialogue pour l'envoi
       const dialogue = lines.map(line => `${line.speaker}: ${line.text}`).join('\n');
       
-      const response = await fetch(`${AI_API_URL}/evaluate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${AI_API_KEY}`,
-        },
-        body: JSON.stringify({ dialogue })
-      });
+      // Envoyer le message au thread
+      const messageResponse = await createThreadMessage(ORGANIZATION_ID, threadId, dialogue);
 
-      if (!response.ok) {
-        throw new Error(`API request failed: ${response.statusText}`);
-      }
+      // Traiter la réponse
+      const evaluation: AIEvaluationResponse = {
+        score: messageResponse.evaluation?.score || 0,
+        feedback: messageResponse.content || '',
+        strengths: messageResponse.evaluation?.strengths || [],
+        improvements: messageResponse.evaluation?.improvements || [],
+        criteria: messageResponse.evaluation?.criteria || [],
+        threadId: threadId
+      };
 
-      const data = await response.json();
-      return data as AIEvaluationResponse;
+      return evaluation;
     } catch (error) {
       console.error('Error evaluating dialogue:', error);
       throw error;
@@ -61,35 +67,32 @@ export const AIService = {
 
   async evaluateExercise(exerciseData: ExerciseEvaluationRequest): Promise<AIEvaluationResponse> {
     try {
-      let requestBody: any;
+      // Créer un nouveau thread pour cet exercice
+      const thread = await createThread(ORGANIZATION_ID, AGENT_ID);
+      const threadId = thread.id;
 
-      if (exerciseData.type === 'company') {
-        requestBody = {
-          type: exerciseData.type,
-          content: exerciseData.content
-        };
-      } else {
-        requestBody = {
-          type: exerciseData.type,
-          sections: exerciseData.sections
-        };
-      }
-      
-      const response = await fetch(`${AI_API_URL}/evaluate-exercise`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${AI_API_KEY}`,
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      if (!response.ok) {
-        throw new Error(`API request failed: ${response.statusText}`);
+      // Préparer le contenu à évaluer
+      let content = '';
+      if (exerciseData.type === 'company' && exerciseData.content) {
+        content = `Type d'exercice: ${exerciseData.type}\nContenu: ${exerciseData.content}`;
+      } else if (exerciseData.sections) {
+        content = `Type d'exercice: ${exerciseData.type}\nSections:\n${JSON.stringify(exerciseData.sections, null, 2)}`;
       }
 
-      const data = await response.json();
-      return data as AIEvaluationResponse;
+      // Envoyer le message au thread
+      const messageResponse = await createThreadMessage(ORGANIZATION_ID, threadId, content);
+
+      // Traiter la réponse
+      const evaluation: AIEvaluationResponse = {
+        score: messageResponse.evaluation?.score || 0,
+        feedback: messageResponse.content || '',
+        strengths: messageResponse.evaluation?.strengths || [],
+        improvements: messageResponse.evaluation?.improvements || [],
+        criteria: messageResponse.evaluation?.criteria || [],
+        threadId: threadId
+      };
+
+      return evaluation;
     } catch (error) {
       console.error('Error evaluating exercise:', error);
       throw error;
@@ -101,22 +104,22 @@ export const AIService = {
     const exerciseDoc = await getDoc(exerciseRef);
 
     if (!exerciseDoc.exists()) {
-      throw new Error('Exercise not found');
+      throw new Error('Exercise document not found');
     }
 
-    const evaluationState: Partial<EvaluationState> = {
-      status: 'ai_evaluated',
-      aiEvaluation: {
-        criteria: evaluation.criteria,
+    const updatedData = {
+      evaluation: {
+        status: 'ai_evaluated' as EvaluationStatus,
+        score: evaluation.score,
         feedback: evaluation.feedback,
-        evaluatedAt: new Date().toISOString(),
-        confidence: 0.8
+        strengths: evaluation.strengths,
+        improvements: evaluation.improvements,
+        criteria: evaluation.criteria,
+        threadId: evaluation.threadId,
+        evaluatedAt: new Date().toISOString()
       }
     };
 
-    await updateDoc(exerciseRef, {
-      evaluation: evaluationState,
-      updatedAt: new Date().toISOString()
-    });
+    await updateDoc(exerciseRef, updatedData);
   }
 };

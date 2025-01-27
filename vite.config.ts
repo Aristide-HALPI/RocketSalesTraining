@@ -19,7 +19,9 @@ export default defineConfig({
         target: 'https://fabrile.app',
         changeOrigin: true,
         secure: true,
-        ws: true
+        headers: {
+          'Origin': 'https://fabrile.app'
+        }
       }
     }
   }

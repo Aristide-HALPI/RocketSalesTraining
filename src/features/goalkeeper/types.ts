@@ -1,8 +1,7 @@
 // Types pour l'exercice Goalkeeper
 
 export interface DialogueLine {
-  id: string;
-  speaker: 'goalkeeper' | 'commercial';
+  speaker: string;
   text: string;
   feedback?: string;
 }
@@ -17,12 +16,13 @@ export interface SubCriterion {
   maxPoints: number;
   score: number;
   feedback: string;
+  description?: string;
 }
 
 export interface EvaluationCriterion {
   id: string;
   name: string;
-  maxPoints: number;
+  description?: string;
   subCriteria: SubCriterion[];
 }
 
@@ -30,89 +30,93 @@ export const GOALKEEPER_EVALUATION_CRITERIA: EvaluationCriterion[] = [
   {
     id: "attitude",
     name: "Attitude générale",
-    maxPoints: 3,
+    description: "",
     subCriteria: [
-      { id: "tone", name: "Ton chaleureux et professionnel", maxPoints: 2, score: 0, feedback: "" },
-      { id: "greeting", name: "Salutation initiale polie et adaptée", maxPoints: 1, score: 0, feedback: "" }
+      { id: "tone", name: "Ton chaleureux et professionnel", maxPoints: 2, score: 0, feedback: "", description: "" },
+      { id: "greeting", name: "Salutation initiale polie et adaptée", maxPoints: 1, score: 0, feedback: "", description: "" }
     ]
   },
   {
     id: "askDecider",
     name: "Demande à parler au décideur",
-    maxPoints: 3,
+    description: "",
     subCriteria: [
-      { id: "naming", name: "Mentionner le prénom, puis le prénom et nom du décideur", maxPoints: 3, score: 0, feedback: "" }
+      { id: "naming", name: "Mentionner le prénom, puis le prénom et nom du décideur", maxPoints: 3, score: 0, feedback: "", description: "" }
     ]
   },
   {
     id: "whoAreYou",
     name: "Réponse à \"Qui êtes-vous ?\"",
-    maxPoints: 5,
+    description: "",
     subCriteria: [
-      { id: "presentation", name: "Présentation concise avec prénom et nom uniquement", maxPoints: 2, score: 0, feedback: "" },
-      { id: "noCompany", name: "Absence de mention de la société", maxPoints: 2, score: 0, feedback: "" },
-      { id: "noSales", name: "Aucune tentative de vente ou allusion commerciale", maxPoints: 1, score: 0, feedback: "" }
+      { id: "presentation", name: "Présentation concise avec prénom et nom uniquement", maxPoints: 2, score: 0, feedback: "", description: "" },
+      { id: "noCompany", name: "Absence de mention de la société", maxPoints: 2, score: 0, feedback: "", description: "" },
+      { id: "noSales", name: "Aucune tentative de vente ou allusion commerciale", maxPoints: 1, score: 0, feedback: "", description: "" }
     ]
   },
   {
     id: "knowDecider",
     name: "Réponse à \"Connaissez-vous le décideur ?\"",
-    maxPoints: 2,
+    description: "",
     subCriteria: [
-      { id: "honesty", name: "Réponse honnête et claire, respectant la formulation prévue", maxPoints: 2, score: 0, feedback: "" }
+      { id: "honesty", name: "Réponse honnête et claire, respectant la formulation prévue", maxPoints: 2, score: 0, feedback: "", description: "" }
     ]
   },
   {
     id: "whyCalling",
     name: "Réponse à \"Pourquoi appelez-vous ?\"",
-    maxPoints: 10,
+    description: "",
     subCriteria: [
-      { id: "reason", name: "Donner une raison complexe et pertinente", maxPoints: 5, score: 0, feedback: "" },
-      { id: "noForbidden", name: "Éviter les termes commerciaux interdits", maxPoints: 5, score: 0, feedback: "" }
+      { id: "reason", name: "Donner une raison complexe et pertinente", maxPoints: 5, score: 0, feedback: "", description: "" },
+      { id: "noForbidden", name: "Éviter les termes commerciaux interdits", maxPoints: 5, score: 0, feedback: "", description: "" }
     ]
   },
   {
     id: "unavailable",
     name: "Gestion des indisponibilités du décideur",
-    maxPoints: 7,
+    description: "",
     subCriteria: [
-      { id: "bestTime", name: "Si indisponible : demander le meilleur moment pour rappeler", maxPoints: 5, score: 0, feedback: "" },
-      { id: "precise", name: "Demander un jour et une heure précise si le créneaux donné par le goalkeeper est vague", maxPoints: 2, score: 0, feedback: "" }
+      { id: "bestTime", name: "Si indisponible : demander le meilleur moment pour rappeler", maxPoints: 5, score: 0, feedback: "", description: "" },
+      { id: "precise", name: "Demander un jour et une heure précise si le créneaux donné par le goalkeeper est vague", maxPoints: 2, score: 0, feedback: "", description: "" }
     ]
   },
   {
     id: "interaction",
     name: "Interaction avec le Goalkeeper",
-    maxPoints: 3,
+    description: "",
     subCriteria: [
-      { id: "askName", name: "Demande du prénom du \"goalkeeper\"", maxPoints: 2, score: 0, feedback: "" },
-      { id: "useName", name: "Utilisation du prénom lors du rappel", maxPoints: 1, score: 0, feedback: "" }
+      { id: "askName", name: "Demande du prénom du \"goalkeeper\"", maxPoints: 2, score: 0, feedback: "", description: "" },
+      { id: "useName", name: "Utilisation du prénom lors du rappel", maxPoints: 1, score: 0, feedback: "", description: "" }
     ]
   },
   {
     id: "behavior",
     name: "Comportement du Goalkeeper",
-    maxPoints: 3,
+    description: "",
     subCriteria: [
-      { id: "professionalism", name: "Le \"goalkeeper\" doit adopter une attitude professionnelle et cohérente", maxPoints: 3, score: 0, feedback: "" }
+      { id: "professionalism", name: "Le \"goalkeeper\" doit adopter une attitude professionnelle et cohérente", maxPoints: 3, score: 0, feedback: "", description: "" }
     ]
   }
 ];
 
+export interface LocalEvaluation {
+  criteria: EvaluationCriterion[];
+  totalScore: number;
+  evaluatedBy: string;
+  evaluatedAt: string;
+  threadId?: string;
+  strengths?: string[];
+  improvements?: string[];
+  generalFeedback?: string;
+}
+
 export interface GoalkeeperExercise {
-  id: string;
+  id?: string;
   userId: string;
-  status: 'not_started' | 'in_progress' | 'submitted' | 'evaluated';
+  status: 'draft' | 'submitted' | 'evaluated';
   firstCall: DialogueSection;
   secondCall: DialogueSection;
-  evaluation?: {
-    criteria: EvaluationCriterion[];
-    totalScore: number;
-    evaluatedBy?: string;
-    evaluatedAt?: string;
-  };
-  totalScore?: number;
-  maxScore: number;
+  evaluation?: LocalEvaluation;
   createdAt: string;
   updatedAt: string;
 }

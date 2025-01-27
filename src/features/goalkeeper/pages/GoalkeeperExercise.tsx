@@ -7,6 +7,7 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { db } from "../../../lib/firebase";
 import { DialogueSection } from "../components/DialogueSection";
 import { EvaluationGrid } from "../components/EvaluationGrid";
+import { EvaluationDisplay } from '../components/EvaluationDisplay';
 import { ScoreDisplay } from "../components/ScoreDisplay";
 import { goalkeeperService } from "../services/goalkeeperService";
 import type { GoalkeeperExercise } from "../types";
@@ -396,171 +397,182 @@ const GoalkeeperExercise: React.FC = () => {
     const botId = import.meta.env.VITE_FABRILE_BOT_ID;
     const token = import.meta.env.VITE_FABRILE_TOKEN;
 
+    console.log("Checking Fabrile configuration:", {
+      organizationId: organizationId ? "✓" : "✗",
+      botId: botId ? "✓" : "✗",
+      token: token ? "✓" : "✗"
+    });
+
     if (!organizationId || !botId || !token) {
-      console.error("Missing environment variables for AI evaluation");
+      console.error("Missing environment variables:", {
+        organizationId: !organizationId,
+        botId: !botId,
+        token: !token
+      });
       toast.error("Error: Missing configuration for AI evaluation");
       setAiLoading(false);
       return;
     }
 
     try {
+      console.log("Starting AI evaluation with:", {
+        organizationId,
+        botId,
+        exerciseId: exercise.id
+      });
+
+      // Créer un nouveau thread pour l'évaluation
       const thread = await createThread(organizationId, botId);
+      console.log("Thread created:", thread);
 
-      // Prepare the dialogue with line numbers for reference
-      const firstCallLines = exercise.firstCall.lines.map(
-        (line, index) => `[${index + 1}] ${line.speaker}: ${line.text}`
-      );
-      const secondCallLines = exercise.secondCall.lines.map(
-        (line, index) =>
-          `[${firstCallLines.length + index + 1}] ${line.speaker}: ${line.text}`
-      );
+      // Préparer le dialogue avec les métadonnées
+      const dialogueData = {
+        type: "goalkeeper_evaluation",
+        instructions: `Évaluez cet exercice de goalkeeper en fournissant :
+1. Une note et un feedback détaillé pour chaque sous-critère
+2. Des commentaires spécifiques pour chaque ligne de dialogue
+3. Une évaluation globale avec les points forts et les axes d'amélioration
 
-      const dialogue = [...firstCallLines, ...secondCallLines].join("\n");
+Format de réponse attendu :
+{
+  "scores": {
+    "attitude": { "tone": 2, "greeting": 1 },
+    "askDecider": { "naming": 3 },
+    ...
+  },
+  "feedbacks": {
+    "attitude": {
+      "tone": "Le ton est professionnel et adapté...",
+      "greeting": "La salutation initiale est correcte..."
+    },
+    ...
+  },
+  "lineFeedbacks": [
+    "Bonne ouverture de conversation",
+    "La demande du décideur est bien formulée",
+    ...
+  ],
+  "totalScore": 25,
+  "strengths": [
+    "Excellente gestion des objections",
+    "Ton professionnel constant"
+  ],
+  "improvements": [
+    "Pourrait mieux utiliser le prénom du goalkeeper",
+    "La raison de l'appel pourrait être plus précise"
+  ]
+}`,
+        firstCall: exercise.firstCall.lines.map((line, index) => ({
+          index: index + 1,
+          speaker: line.speaker,
+          text: line.text
+        })),
+        secondCall: exercise.secondCall.lines.map((line, index) => ({
+          index: exercise.firstCall.lines.length + index + 1,
+          speaker: line.speaker,
+          text: line.text
+        })),
+        evaluationCriteria: GOALKEEPER_EVALUATION_CRITERIA.map(criterion => ({
+          id: criterion.id,
+          name: criterion.name,
+          description: criterion.description || "",
+          subCriteria: criterion.subCriteria.map(sub => ({
+            id: sub.id,
+            name: sub.name,
+            maxPoints: sub.maxPoints,
+            description: sub.description
+          }))
+        }))
+      };
 
-      const prompt = `Please evaluate this goalkeeper exercise dialogue and provide feedback:
-        ${dialogue}
-        
-        For each line of dialogue, provide specific feedback in this format:
-        [line_number] Feedback for this specific line
-        
-        Then, evaluate based on the following criteria:
-        ${GOALKEEPER_EVALUATION_CRITERIA.map((criterion) =>
-          criterion.subCriteria
-            .map(
-              (subCriteria) =>
-                `${subCriteria.name}: ${subCriteria.maxPoints} points`
-            )
-            .join("\n")
-        ).join("\n")}
-        
-        For each criteria evaluated, provide a score and detailed feedback in this format:
-        criteria_name | score | max_points | feedback`;
+      console.log("Sending dialogue data:", dialogueData);
 
+      // Envoyer les données au thread
       const result = await createThreadMessage(
         organizationId,
         thread.id,
-        prompt
+        JSON.stringify(dialogueData)
       );
 
-      if (!result || !result.completion || !result.completion.content) {
+      console.log("Received AI response:", result);
+
+      if (!result || !result.completion) {
         throw new Error("No valid response received from AI");
       }
 
-      const feedbackData = result.completion.content;
+      const aiResponse = result.completion;
+      console.log("Processing AI response:", aiResponse);
+      
+      // Traiter la réponse AI
+      const evaluation = {
+        criteria: GOALKEEPER_EVALUATION_CRITERIA.map(criterion => {
+          console.log(`Processing criterion ${criterion.id}:`, aiResponse.scores?.[criterion.id]);
+          return {
+            ...criterion,
+            subCriteria: criterion.subCriteria.map(sub => {
+              const score = aiResponse.scores?.[criterion.id]?.[sub.id] || 0;
+              const feedback = aiResponse.feedbacks?.[criterion.id]?.[sub.id] || "";
+              console.log(`- SubCriterion ${sub.id}:`, { score, feedback });
+              return {
+                ...sub,
+                score,
+                feedback
+              };
+            })
+          };
+        }),
+        totalScore: aiResponse.totalScore || 0,
+        evaluatedBy: "AI Assistant",
+        evaluatedAt: new Date().toISOString(),
+        threadId: thread.id,
+        strengths: aiResponse.strengths || [],
+        improvements: aiResponse.improvements || [],
+        generalFeedback: aiResponse.generalFeedback || ""
+      };
 
-      // Process the AI feedback
-      const { evaluation: aiEvaluation, lineFeedback } =
-        processAIFeedback(feedbackData);
+      console.log("Final evaluation object:", evaluation);
 
-      console.log("lineFeedback", lineFeedback);
-      console.log("exercise.firstCall.lines", exercise.firstCall.lines);
-      // Update exercise with line-specific feedback
+      // Mettre à jour l'exercice avec les feedbacks ligne par ligne
       const updatedExercise = {
         ...exercise,
         status: "evaluated",
-        evaluation: aiEvaluation,
+        evaluation,
         firstCall: {
           ...exercise.firstCall,
           lines: exercise.firstCall.lines.map((line, index) => ({
             ...line,
-            feedback: lineFeedback[index + 1] || line.feedback || "",
-          })),
+            feedback: aiResponse.lineFeedbacks?.[index] || ""
+          }))
         },
         secondCall: {
           ...exercise.secondCall,
           lines: exercise.secondCall.lines.map((line, index) => ({
             ...line,
-            feedback:
-              lineFeedback[exercise.firstCall.lines.length + index + 1] ||
-              line.feedback ||
-              "",
-          })),
-        },
-      } as GoalkeeperExercise;
+            feedback: aiResponse.lineFeedbacks?.[exercise.firstCall.lines.length + index] || ""
+          }))
+        }
+      };
 
-      setExercise(updatedExercise);
+      console.log("Saving updated exercise:", updatedExercise);
+
+      // Sauvegarder les changements
       await goalkeeperService.updateExercise(userId, updatedExercise);
-
-      setLocalEvaluation(aiEvaluation);
+      setExercise(updatedExercise);
+      setLocalEvaluation(evaluation);
+      
+      // Sauvegarder dans le localStorage
       saveToLocalStorage(userId, {
         feedbacks: localFeedbacks,
-        evaluation: aiEvaluation,
+        evaluation
       });
 
-      toast.success("AI evaluation completed successfully!");
+      toast.success("Évaluation IA terminée avec succès !");
     } catch (error) {
-      console.error("Error during AI evaluation:", error);
-      toast.error(
-        "Error during AI evaluation. Please check the console for more details."
-      );
+      console.error("Erreur lors de l'évaluation IA:", error);
+      toast.error("Erreur lors de l'évaluation IA. Consultez la console pour plus de détails.");
     } finally {
       setAiLoading(false);
     }
-  };
-
-  const processAIFeedback = (
-    feedback: string
-  ): {
-    evaluation: LocalEvaluation;
-    lineFeedback: { [key: number]: string };
-  } => {
-    const evaluation: LocalEvaluation = {
-      criteria: GOALKEEPER_EVALUATION_CRITERIA.map((criterion) => ({
-        ...criterion,
-        subCriteria: criterion.subCriteria.map((sub) => ({
-          ...sub,
-        })),
-      })),
-      totalScore: 0,
-      evaluatedBy: "AI",
-      evaluatedAt: new Date().toISOString(),
-    };
-
-    const lineFeedback: { [key: number]: string } = {};
-const lineMatches = [...feedback.matchAll(/Feedback(?:\s*for.*)?\s*:\s*(.+)/g)];
-
-lineMatches.forEach((lineMatch, index) => {
-  console.log("lineMatch", lineMatch);
-  const [, feedbackText] = lineMatch; // Extract the feedback text
-  lineFeedback[index + 1] = feedbackText.trim(); // Use index + 1 as line number
-});
-
-console.log(lineFeedback);
-
-
-
-    for (let i = 0; i < GOALKEEPER_EVALUATION_CRITERIA.length; i++) {
-      const criterion = GOALKEEPER_EVALUATION_CRITERIA[i];
-      // Loop over subcriteria to find scores and feedback
-      for (let j = 0; j < criterion.subCriteria.length; j++) {
-        const subCriterion = criterion.subCriteria[j];
-        const subCriterionMatch = feedback.match(
-          new RegExp(
-            `${subCriterion.name}[\\*\\s]*\\| (\\d+) \\| (\\d+)\\s*\\|?[\\*\\s]*(.*)`
-          )
-        );
-        if (subCriterionMatch) {
-          const [,score, maxPoints, subFeedback] = subCriterionMatch;
-          evaluation.criteria[i].subCriteria[j].score = Number.parseInt(
-            score,
-            10
-          );
-          evaluation.criteria[i].subCriteria[j].feedback = subFeedback.trim();
-        }
-      }
-    }
-
-    evaluation.totalScore = evaluation.criteria.reduce(
-      (total, criterion) =>
-        total +
-        criterion.subCriteria.reduce(
-          (subTotal, sub) => subTotal + sub.score,
-          0
-        ),
-      0
-    );
-
-    return { evaluation, lineFeedback };
   };
 
   // Initial exercise loading
@@ -855,6 +867,11 @@ console.log(lineFeedback);
             )}
           </div>
         )}
+      {localEvaluation && (
+        <div className="mt-8">
+          <EvaluationDisplay evaluation={localEvaluation} />
+        </div>
+      )}
     </div>
   );
 };
