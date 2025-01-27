@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import type { Exercise, ExerciseStatus, ExerciseDifficulty } from '../types/database';
+import type { Exercise, ExerciseStatus } from '../types/database';
 import { goalkeeperService } from '../features/goalkeeper/services/goalkeeperService';
-import type { GoalkeeperExercise } from '../features/goalkeeper/types';
 
 // Type pour un exercice standard dans la liste
-type StandardExercise = Exercise & { exerciseType: 'standard' };
+type StandardExercise = Exercise & { 
+  exerciseType: 'standard';
+  status: ExerciseStatus;
+};
 
 // Type pour un exercice goalkeeper dans la liste
 interface BaseExerciseFields {
@@ -16,7 +18,7 @@ interface BaseExerciseFields {
   title: string;
   description: string;
   category: string;
-  difficulty: ExerciseDifficulty;
+  difficulty: Exercise['difficulty'];
   duration: number;
   maxScore: number;
   tags: string[];
@@ -33,7 +35,7 @@ interface BaseExerciseFields {
 // Type pour un exercice goalkeeper dans la liste
 interface GoalkeeperListItem extends BaseExerciseFields {
   exerciseType: 'goalkeeper';
-  status: GoalkeeperExercise['status'];
+  status: ExerciseStatus;
 }
 
 // Type pour un exercice dans la liste (standard ou goalkeeper)
@@ -44,7 +46,7 @@ export default function ExerciseList() {
   const [exercises, setExercises] = useState<ExerciseListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [status, setStatus] = useState<ExerciseStatus>('published');
+  const [status, setStatus] = useState<ExerciseStatus>('not_started');
 
   const loadExercises = useCallback(async () => {
     if (!currentUser) return;
@@ -54,7 +56,7 @@ export default function ExerciseList() {
       setError('');
 
       // 1. Charger les exercices standards
-      const exercisesRef = collection(db, 'exercises');
+      const exercisesRef = collection(db, `users/${currentUser.uid}/exercises`);
       const q = query(
         exercisesRef,
         where('status', '==', status),
@@ -65,7 +67,8 @@ export default function ExerciseList() {
       const standardExercises = querySnapshot.docs.map(doc => ({
         ...(doc.data() as Exercise),
         id: doc.id,
-        exerciseType: 'standard' as const
+        exerciseType: 'standard' as const,
+        status: doc.data().status as ExerciseStatus
       }));
 
       // 2. Charger l'exercice Goalkeeper s'il existe
@@ -92,7 +95,27 @@ export default function ExerciseList() {
             version: 1
           },
           createdAt: goalkeeperExercise.createdAt
-        } satisfies GoalkeeperListItem] : [])
+        } satisfies GoalkeeperListItem] : []),
+        {
+          id: 'cdab',
+          title: 'CDAB',
+          description: 'Appliquez la méthode CDAB',
+          status: 'not_started',
+          category: 'methodologie',
+          difficulty: 'intermédiaire',
+          duration: 30,
+          maxScore: 100,
+          tags: ['cdab', 'methodologie'],
+          exerciseType: 'standard' as const,
+          metadata: {
+            createdAt: new Date().toISOString(),
+            createdBy: currentUser.uid,
+            lastUpdated: new Date().toISOString(),
+            updatedBy: currentUser.uid,
+            version: 1
+          },
+          createdAt: new Date().toISOString()
+        } satisfies StandardExercise
       ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       setExercises(allExercises);
@@ -105,42 +128,118 @@ export default function ExerciseList() {
   }, [currentUser, status]);
 
   useEffect(() => {
+    const fetchExercises = async () => {
+      if (!currentUser) return;
+      
+      try {
+        setLoading(true);
+        const exercisesRef = collection(db, `users/${currentUser.uid}/exercises`);
+        const snapshot = await getDocs(exercisesRef);
+        const exercisesData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          exerciseType: 'standard' as const,
+          status: doc.data().status as ExerciseStatus,
+          title: doc.data().title || '',
+          description: doc.data().description || '',
+          category: doc.data().category || '',
+          difficulty: doc.data().difficulty || 'débutant',
+          duration: doc.data().duration || 0,
+          maxScore: doc.data().maxScore || 0,
+          tags: doc.data().tags || [],
+          metadata: {
+            createdAt: doc.data().createdAt || new Date().toISOString(),
+            createdBy: doc.data().createdBy || currentUser.uid,
+            lastUpdated: doc.data().updatedAt || new Date().toISOString(),
+            updatedBy: doc.data().updatedBy || currentUser.uid,
+            version: doc.data().version || 1
+          },
+          createdAt: doc.data().createdAt || new Date().toISOString()
+        } satisfies ExerciseListItem));
+        setExercises(exercisesData);
+      } catch (error) {
+        console.error('Error fetching exercises:', error);
+        setError(error instanceof Error ? error.message : 'Une erreur est survenue');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (currentUser) {
+      fetchExercises();
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
     if (currentUser) {
       loadExercises();
     }
   }, [currentUser, loadExercises]);
 
-  const getStatusBadgeStyle = (exerciseStatus: string) => {
-    switch (exerciseStatus) {
-      case 'published':
-        return 'bg-green-100 text-green-800';
-      case 'draft':
+  const getStatusText = (status: ExerciseStatus) => {
+    switch (status) {
+      case 'not_started':
+        return 'À débuter';
+      case 'in_progress':
+        return 'En cours';
+      case 'submitted':
+        return 'En attente de correction';
+      case 'evaluated':
+        return 'Corrigé';
+      default:
+        return 'À débuter';
+    }
+  };
+
+  const getStatusBadgeStyle = (status: ExerciseStatus) => {
+    switch (status) {
+      case 'not_started':
+        return 'bg-gray-100 text-gray-800';
+      case 'in_progress':
         return 'bg-yellow-100 text-yellow-800';
       case 'submitted':
         return 'bg-blue-100 text-blue-800';
       case 'evaluated':
-        return 'bg-purple-100 text-purple-800';
-      case 'in_progress':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'bg-green-100 text-green-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
   };
 
-  const getStatusLabel = (exerciseStatus: string) => {
-    switch (exerciseStatus) {
-      case 'published':
-        return 'Publié';
-      case 'draft':
-        return 'Brouillon';
-      case 'submitted':
-        return 'Soumis';
-      case 'evaluated':
-        return 'Évalué';
-      case 'in_progress':
-        return 'En cours';
+  const getExerciseTitle = (id: string): string => {
+    switch (id) {
+      case 'sections':
+        return 'Les 3 sections';
+      case 'meeting':
+        return 'RDV Décideur';
+      case 'presentation':
+        return 'Présentation';
+      case 'objections':
+        return 'Objections';
+      case 'cdab':
+        return 'CDAB';
+      case 'outil_cdab':
+        return 'Outil CDAB - Mise en pratique';
       default:
-        return 'Non commencé';
+        return 'Exercice';
+    }
+  };
+
+  const getExerciseDescription = (id: string): string => {
+    switch (id) {
+      case 'sections':
+        return 'Maîtrisez les 3 sections clés : Motivateurs, Caractéristiques et Concepts';
+      case 'meeting':
+        return 'Simulez un rendez-vous avec un décideur';
+      case 'presentation':
+        return 'Pratiquez vos compétences de présentation';
+      case 'objections':
+        return 'Apprenez à gérer les objections efficacement';
+      case 'cdab':
+        return 'Appliquez la méthode CDAB';
+      case 'outil_cdab':
+        return 'Mettez en pratique la méthode CDAB sur différents scénarios';
+      default:
+        return 'Description non disponible';
     }
   };
 
@@ -161,34 +260,44 @@ export default function ExerciseList() {
       <div className="mb-6">
         <div className="flex space-x-4">
           <button
-            onClick={() => setStatus('published')}
+            onClick={() => setStatus('not_started')}
             className={`px-4 py-2 rounded-md ${
-              status === 'published'
+              status === 'not_started'
                 ? 'bg-teal-100 text-teal-800'
                 : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
             }`}
           >
-            Publiés
+            À débuter
           </button>
           <button
-            onClick={() => setStatus('draft')}
+            onClick={() => setStatus('in_progress')}
             className={`px-4 py-2 rounded-md ${
-              status === 'draft'
+              status === 'in_progress'
                 ? 'bg-yellow-100 text-yellow-800'
                 : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
             }`}
           >
-            Brouillons
+            En cours
           </button>
           <button
-            onClick={() => setStatus('archived')}
+            onClick={() => setStatus('submitted')}
             className={`px-4 py-2 rounded-md ${
-              status === 'archived'
-                ? 'bg-gray-300 text-gray-800'
+              status === 'submitted'
+                ? 'bg-blue-100 text-blue-800'
                 : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
             }`}
           >
-            Archivés
+            En attente de correction
+          </button>
+          <button
+            onClick={() => setStatus('evaluated')}
+            className={`px-4 py-2 rounded-md ${
+              status === 'evaluated'
+                ? 'bg-green-100 text-green-800'
+                : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+            }`}
+          >
+            Corrigé
           </button>
         </div>
       </div>
@@ -207,44 +316,63 @@ export default function ExerciseList() {
             Aucun exercice trouvé
           </div>
         ) : (
-          exercises.map((exercise) => (
-            <div key={exercise.id} className="border-b border-gray-200">
-              <div className="px-4 py-4 sm:px-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-medium text-gray-900">
-                      <Link
-                        to={exercise.exerciseType === 'goalkeeper' ? `/goalkeeper/${currentUser?.uid}` : `/exercises/${exercise.id}`}
-                        className="hover:text-teal-600"
-                      >
-                        {exercise.title}
-                      </Link>
+          exercises.map((exercise) => {
+            let exerciseLink = '#';
+            switch (exercise.id) {
+              case 'goalkeeper':
+                exerciseLink = '/goalkeeper';
+                break;
+              case 'sections':
+                exerciseLink = '/sections';
+                break;
+              case 'meeting':
+                exerciseLink = '/rdv-decideur';
+                break;
+              case 'presentation':
+                exerciseLink = '/presentation';
+                break;
+              case 'objections':
+                exerciseLink = '/objections';
+                break;
+              case 'cdab':
+                exerciseLink = '/cdab';
+                break;
+              case 'outil_cdab':
+                exerciseLink = '/outils-cdab';
+                break;
+              default:
+                exerciseLink = `/exercises/${exercise.id}`;
+            }
+
+            return (
+              <Link
+                key={exercise.id}
+                to={exerciseLink}
+                className="block p-6 bg-white rounded-lg shadow hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                      {exercise.title || getExerciseTitle(exercise.id)}
                     </h3>
-                    <p className="mt-1 text-sm text-gray-600">
-                      {exercise.description}
+                    <p className="text-gray-600 mb-4">
+                      {exercise.description || getExerciseDescription(exercise.id)}
                     </p>
-                    {exercise.tags?.length > 0 && (
-                      <div className="mt-2">
-                        {exercise.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-800 mr-2"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="ml-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeStyle(exercise.status)}`}>
-                      {getStatusLabel(exercise.status)}
-                    </span>
+                    <div className="flex items-center space-x-4">
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        {exercise.status}
+                      </span>
+                      {exercise.difficulty && (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                          {exercise.difficulty}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          ))
+              </Link>
+            );
+          })
         )}
       </div>
     </div>

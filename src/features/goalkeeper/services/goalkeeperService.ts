@@ -60,6 +60,7 @@ const initializeNewExercise = (userId: string): GoalkeeperExercise => {
       })),
       totalScore: 0
     },
+    maxScore: 30,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -79,8 +80,16 @@ export const goalkeeperService = {
 
       if (!exerciseDoc.exists()) {
         console.log('Creating new exercise for user:', userId);
-        const newExercise = initializeNewExercise(userId);
-        console.log('New exercise data:', newExercise);
+        const newExercise: GoalkeeperExercise = {
+          id: 'goalkeeper',
+          userId,
+          status: 'not_started',
+          firstCall: { lines: [] },
+          secondCall: { lines: [] },
+          maxScore: 30,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
         await setDoc(exerciseRef, cleanUndefined(newExercise));
         return newExercise;
       }
@@ -109,6 +118,7 @@ export const goalkeeperService = {
           evaluatedBy: data.evaluation?.evaluatedBy,
           evaluatedAt: data.evaluation?.evaluatedAt
         },
+        maxScore: data.maxScore || 30,
         createdAt: data.createdAt || new Date().toISOString(),
         updatedAt: data.updatedAt || new Date().toISOString()
       };
@@ -128,7 +138,16 @@ export const goalkeeperService = {
     getDoc(exerciseRef).then(async (doc) => {
       if (!doc.exists()) {
         console.log('Exercise does not exist, creating new one...');
-        const newExercise = initializeNewExercise(userId);
+        const newExercise: GoalkeeperExercise = {
+          id: 'goalkeeper',
+          userId,
+          status: 'not_started',
+          firstCall: { lines: [] },
+          secondCall: { lines: [] },
+          maxScore: 30,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
         await setDoc(exerciseRef, cleanUndefined(newExercise));
       }
     });
@@ -162,6 +181,7 @@ export const goalkeeperService = {
             evaluatedBy: data.evaluation?.evaluatedBy,
             evaluatedAt: data.evaluation?.evaluatedAt
           },
+          maxScore: data.maxScore || 30,
           createdAt: data.createdAt || new Date().toISOString(),
           updatedAt: data.updatedAt || new Date().toISOString()
         };

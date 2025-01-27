@@ -16,10 +16,10 @@ interface Exercise {
   id: string;
   title: string;
   description: string;
-  status: 'not_started' | 'in_progress' | 'completed' | 'pending_validation' | 'evaluated';
+  status: 'not_started' | 'in_progress' | 'completed' | 'pending_validation' | 'evaluated' | 'submitted';
   score?: number;
   lastUpdated?: string;
-  type?: 'eisenhower' | 'welcome' | 'goalkeeper' | 'sections' | 'solution' | 'rdv_decideur' | 'iiep' | 'presentation' | 'eombus' | 'cles' | 'cdab' | 'outil_cdab' | 'objections' | 'points_bonus' | 'points_role_final' | 'certification';
+  type?: 'eisenhower' | 'welcome' | 'goalkeeper' | 'sections' | 'solution' | 'rdv_decideur' | 'iiep' | 'presentation' | 'eombus' | 'cles' | 'cdab' | 'outil_cdab' | 'objections' | 'points_bonus' | 'points_role_final' | 'certification' | 'company';
   isAutoCorrected?: boolean;
   isViewOnly?: boolean;
   statusColor?: string;
@@ -99,16 +99,16 @@ const AVAILABLE_EXERCISES = [
     type: 'presentation' as const,
     status: 'not_started' as const,
     isAutoCorrected: false,
-    duration: '35 min'
+    duration: '35 min',
+    path: '/presentation'
   },
   {
     id: 'eombus',
     title: 'EOMBUS-PAF-I',
-    description: 'Framework de qualification des opportunités',
+    description: 'Apprenez à structurer votre approche commerciale',
     type: 'eombus' as const,
-    status: 'not_started' as const,
-    isAutoCorrected: false,
-    duration: '120 min'
+    duration: '120 min',
+    isAutoCorrected: false
   },
   {
     id: 'cles',
@@ -172,6 +172,15 @@ const AVAILABLE_EXERCISES = [
     status: 'not_started' as const,
     isAutoCorrected: false,
     duration: '10 min'
+  },
+  {
+    id: 'company',
+    title: 'Company',
+    description: 'Exercice Company',
+    type: 'company' as const,
+    status: 'not_started' as const,
+    isAutoCorrected: false,
+    duration: '10 min'
   }
 ] as Exercise[];
 
@@ -191,16 +200,20 @@ const getStatusColor = (status: Exercise['status']) => {
 
 const getStatusText = (status: Exercise['status']) => {
   switch (status) {
-    case 'completed':
-      return 'Terminé';
-    case 'evaluated':
-      return 'Évalué';
+    case 'not_started':
+      return 'À débuter';
     case 'in_progress':
       return 'En cours';
+    case 'submitted':
+      return 'En attente de correction';
+    case 'evaluated':
+      return 'Corrigé';
     case 'pending_validation':
       return 'En attente de validation';
+    case 'completed':
+      return 'Terminé';
     default:
-      return 'Non commencé';
+      return 'À débuter';
   }
 };
 
@@ -285,7 +298,7 @@ export default function StudentExercises() {
         navigate(`/solution?userId=${userId}`);
         break;
       case 'rdv_decideur':
-        navigate(`/rdv-decideur?userId=${userId}`);
+        navigate(`/meeting?userId=${userId}`);
         break;
       case 'iiep':
         navigate(`/iiep?userId=${userId}`);
@@ -294,7 +307,7 @@ export default function StudentExercises() {
         navigate(`/presentation?userId=${userId}`);
         break;
       case 'eombus':
-        navigate(`/eombus?userId=${userId}`);
+        navigate(`/eombus-pafi?userId=${userId}`);
         break;
       case 'cles':
         navigate(`/cles?userId=${userId}`);
@@ -309,13 +322,16 @@ export default function StudentExercises() {
         navigate(`/objections?userId=${userId}`);
         break;
       case 'points_bonus':
-        navigate(`/points-bonus?userId=${userId}`);
+        navigate(`/bonus?userId=${userId}`);
         break;
       case 'points_role_final':
         navigate(`/points-role-final?userId=${userId}`);
         break;
       case 'certification':
         navigate(`/certification?userId=${userId}`);
+        break;
+      case 'company':
+        navigate(`/company?userId=${userId}`);
         break;
       default:
         console.warn('Type d\'exercice non géré:', exercise.type);

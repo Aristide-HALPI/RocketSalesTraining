@@ -5,6 +5,7 @@ import { sectionsService, SectionsExercise } from '../features/sections/services
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { AIService } from '../features/sections/services/AIService';
+import { toast } from 'react-toastify';
 
 export default function Sections() {
   const { currentUser, userProfile } = useAuth();
@@ -244,44 +245,27 @@ export default function Sections() {
         </div>
 
         {isFormateur && (
-          <div className="bg-blue-50 border border-blue-100 rounded-lg p-6 mb-8">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-blue-900">Mode Formateur</h2>
-                <p className="text-sm text-blue-600">
-                  {exercise?.status === 'pending_validation' && "L'exercice est en attente de correction"}
-                  {exercise?.status === 'evaluated' && "L'exercice a été évalué"}
-                </p>
-              </div>
-              
-              <div className="flex gap-4">
-                {exercise?.status === 'pending_validation' && (
-                  <button
-                    onClick={handleAIEvaluation}
-                    disabled={loading}
-                    className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
-                  >
-                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 20C7.59 20 4 16.41 4 12C4 7.59 7.59 4 12 4C16.41 4 20 7.59 20 12C20 16.41 16.41 20 12 20ZM16.59 7.58L10 14.17L7.41 11.59L6 13L10 17L18 9L16.59 7.58Z" fill="currentColor"/>
-                    </svg>
-                    Correction IA
-                  </button>
-                )}
-
-                {exercise?.status === 'pending_validation' && exercise?.totalScore !== undefined && (
-                  <button
-                    onClick={handlePublishEvaluation}
-                    disabled={loading}
-                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
-                  >
-                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M5 4V6H19V4H5ZM5 14H9V20H15V14H19L12 7L5 14ZM13 12V18H11V12H9.83L12 9.83L14.17 12H13Z" fill="currentColor"/>
-                    </svg>
-                    Publier l'évaluation
-                  </button>
-                )}
-              </div>
-            </div>
+          <div className="bg-blue-50 p-4 rounded-lg mb-8 flex justify-between items-center">
+            <span className="text-blue-600 font-medium">Mode Formateur</span>
+            <button
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50"
+              onClick={async () => {
+                if (!targetUserId) return;
+                try {
+                  setLoading(true);
+                  await sectionsService.evaluateWithAI(targetUserId);
+                  toast.success("L'exercice a été évalué par l'IA");
+                } catch (error) {
+                  console.error("Erreur lors de l'évaluation IA:", error);
+                  toast.error("Erreur lors de l'évaluation par l'IA");
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={loading || !exercise || exercise.status !== 'submitted'}
+            >
+              {loading ? 'Évaluation en cours...' : 'Correction IA'}
+            </button>
           </div>
         )}
 
@@ -382,23 +366,33 @@ export default function Sections() {
             ))}
 
             <div className="flex justify-end gap-4 mt-8">
-              {!isFormateur && exercise.status === 'in_progress' && !isViewMode && (
+              {!isFormateur ? (
                 <button
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50"
                   onClick={handleSubmit}
-                  disabled={loading}
-                  className="bg-teal-600 text-white px-6 py-2 rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                  disabled={loading || exercise?.status === 'submitted' || exercise?.status === 'evaluated'}
                 >
-                  {loading ? 'Soumission...' : 'Soumettre'}
+                  {loading ? 'Envoi en cours...' : 'Soumettre'}
                 </button>
-              )}
-              
-              {isFormateur && exercise.status !== 'evaluated' && (
+              ) : (
                 <button
-                  onClick={handleSaveEvaluation}
-                  disabled={loading}
-                  className="bg-gray-600 text-white px-6 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-50"
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50"
+                  onClick={async () => {
+                    if (!targetUserId || !exercise) return;
+                    try {
+                      setLoading(true);
+                      await sectionsService.evaluateExercise(targetUserId, exercise.sections, currentUser?.uid);
+                      toast.success("Les résultats ont été publiés à l'apprenant");
+                    } catch (error) {
+                      console.error("Erreur lors de la publication:", error);
+                      toast.error("Erreur lors de la publication des résultats");
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={loading || !exercise || exercise.status !== 'submitted'}
                 >
-                  {loading ? 'Sauvegarde...' : 'Sauvegarder'}
+                  {loading ? 'Publication en cours...' : 'Publier les résultats'}
                 </button>
               )}
             </div>

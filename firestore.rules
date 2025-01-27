@@ -23,6 +23,20 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin() || request.auth.uid == userId;
+      
+      // Règles pour les exercices des utilisateurs
+      match /exercises/{exerciseId} {
+        allow read: if isAuthenticated() && (
+          request.auth.uid == userId || 
+          isFormateur() || 
+          isAdmin()
+        );
+        allow write: if isAuthenticated() && (
+          request.auth.uid == userId || 
+          isFormateur() || 
+          isAdmin()
+        );
+      }
     }
 
     // Règles pour la collection templates

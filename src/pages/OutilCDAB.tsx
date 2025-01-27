@@ -1,3 +1,4 @@
+import React from 'react';
 import { ExerciseTemplate } from '../components/ExerciseTemplate';
 
 export default function OutilCDAB() {

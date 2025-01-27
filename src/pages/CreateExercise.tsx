@@ -15,19 +15,14 @@ export default function CreateExercise() {
     if (!currentUser) return;
 
     try {
-      const now = new Date().toISOString();
       const exerciseData = {
         ...exercise,
-        metadata: {
-          createdAt: now,
-          createdBy: currentUser.uid,
-          lastUpdated: now,
-          updatedBy: currentUser.uid,
-          version: 1
-        }
+        createdAt: new Date().toISOString(),
+        createdBy: currentUser.uid,
+        status: 'not_started'
       };
 
-      const docRef = await addDoc(collection(db, 'exercises'), exerciseData);
+      const docRef = await addDoc(collection(db, `users/${currentUser.uid}/exercises`), exerciseData);
       navigate(`/exercises/${docRef.id}`);
     } catch (err) {
       console.error('Error creating exercise:', err);

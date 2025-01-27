@@ -437,6 +437,38 @@ const GoalkeeperExercise: React.FC = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <div className="bg-gradient-to-r from-purple-50 via-blue-50 to-green-50 rounded-lg p-6 mb-8">
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Goalkeeper</h1>
+        <p className="text-gray-600 mb-4">
+          Mettez-vous dans la peau d'un commercial qui appelle une entreprise pour la première fois. Votre objectif est d'obtenir un rendez-vous avec le décideur.
+        </p>
+
+        {/* Zone de score et statut en deux colonnes égales */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-white bg-opacity-50 rounded p-4">
+            <div className="text-purple-700">Votre score</div>
+            <div className="flex items-baseline">
+              <span className="text-2xl font-bold text-purple-900 mr-2">
+                {exercise?.totalScore || '-'}
+              </span>
+              <span className="text-sm text-purple-600">
+                (max {exercise?.maxScore || 30} points)
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-white bg-opacity-50 rounded p-4">
+            <div className="text-blue-700">Statut de l'exercice</div>
+            <div className="text-2xl font-bold text-blue-900">
+              {exercise?.status === 'not_started' && 'Non commencé'}
+              {exercise?.status === 'in_progress' && 'En cours'}
+              {exercise?.status === 'submitted' && 'Soumis'}
+              {exercise?.status === 'evaluated' && 'Évalué'}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <Link to="/" className="inline-flex items-center text-green-600 hover:text-green-800 mb-6">
         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M7.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l2.293 2.293a1 1 0 010 1.414z" clipRule="evenodd" />
@@ -473,11 +505,12 @@ const GoalkeeperExercise: React.FC = () => {
             <h2 className={`text-lg font-semibold ${exercise.status === 'evaluated' ? 'text-green-800' : 'text-yellow-800'}`}>
               Statut de l'exercice
             </h2>
-            <p className={`mt-2 ${exercise.status === 'evaluated' ? 'text-green-600' : 'text-yellow-600'}`}>
-              {exercise.status === 'evaluated' 
-                ? 'Exercice corrigé' 
-                : 'En attente de correction'}
-            </p>
+            <div className="text-sm text-gray-600">
+              {exercise?.status === 'not_started' && 'À débuter'}
+              {exercise?.status === 'in_progress' && 'En cours'}
+              {exercise?.status === 'submitted' && 'En attente de correction'}
+              {exercise?.status === 'evaluated' && 'Corrigé'}
+            </div>
             {exercise.status === 'evaluated' && exercise.evaluation?.evaluatedAt && (
               <p className="text-sm text-green-600 mt-1">
                 Corrigé le {new Date(exercise.evaluation.evaluatedAt).toLocaleDateString()}

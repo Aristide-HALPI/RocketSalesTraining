@@ -77,19 +77,19 @@ export default function Dashboard() {
       title: 'Présentation de votre société',
       description: 'Techniques pour présenter efficacement votre entreprise',
       duration: '35 min',
-      path: '/company'
+      path: '/presentation'
     },
     {
       title: 'EOMBUS-PAF-I',
-      description: 'Framework de qualification des opportunités',
+      description: 'Apprenez à structurer votre approche commerciale',
       duration: '120 min',
-      path: '/eombus'
+      path: '/eombus-pafi'
     },
     {
       title: 'Les 3 Qlés',
       description: 'Points clés de la négociation',
       duration: '90 min',
-      path: '/keys'
+      path: '/cles'
     },
     {
       title: 'CDAB',

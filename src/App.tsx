@@ -21,15 +21,20 @@ import RegisterTrainer from './pages/RegisterTrainer';
 import Sections from './pages/Sections';
 import RdvDecideur from './pages/RdvDecideur';
 import IIEP from './pages/IIEP';
-import Presentation from './pages/Presentation';
-import Eombus from './pages/Eombus';
+import Presentation from './features/presentation/pages/Presentation';
+import EombusPafi from './pages/EombusPafi';
 import Cles from './pages/Cles';
-import CDAB from './pages/CDAB';
-import OutilCDAB from './pages/OutilCDAB';
+import Cdab from './features/cdab/pages/Cdab';
+import OutilsCdab from './features/outilscdab/pages/OutilsCdab';
 import Objections from './pages/Objections';
 import PointsBonus from './pages/PointsBonus';
 import PointsRoleFinal from './pages/PointsRoleFinal';
+import Roleplay from './pages/Roleplay';
+import Meeting from './pages/Meeting';
 import Certification from './pages/Certification';
+import CertificationRedirect from './pages/CertificationRedirect';
+import Bonus from './pages/Bonus';
+import Company from './pages/Company';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
@@ -62,7 +67,6 @@ function App() {
                         <MemberManagement />
                       </PrivateRoute>
                     } />
-                    <Route path="/evaluate/:userId/:exerciseId" element={<ExerciseEvaluation />} />
                     <Route path="/welcome" element={<Welcome />} />
                     <Route path="/solution" element={<Solution />} />
                     <Route path="/eisenhower" element={<EisenhowerExercise />} />
@@ -71,30 +75,44 @@ function App() {
                         <GoalkeeperExercise />
                       </PrivateRoute>
                     } />
+                    <Route path="/evaluation-settings" element={
+                      <PrivateRoute requiredRole={["admin", "trainer"] as const}>
+                        <EvaluationSettings />
+                      </PrivateRoute>
+                    } />
                     <Route path="/sections" element={
                       <PrivateRoute>
                         <Sections />
                       </PrivateRoute>
                     } />
                     <Route path="/rdv-decideur" element={<RdvDecideur />} />
+                    <Route path="/meeting" element={<Meeting />} />
                     <Route path="/iiep" element={<IIEP />} />
-                    <Route path="/presentation" element={<Presentation />} />
-                    <Route path="/eombus" element={<Eombus />} />
+                    <Route path="/presentation" element={
+                      <PrivateRoute>
+                        <Presentation />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/eombus-pafi" element={<EombusPafi />} />
                     <Route path="/cles" element={<Cles />} />
-                    <Route path="/cdab" element={<CDAB />} />
-                    <Route path="/outil-cdab" element={<OutilCDAB />} />
+                    <Route path="/cdab" element={<Cdab />} />
+                    <Route path="/outils-cdab" element={
+                      <PrivateRoute>
+                        <OutilsCdab />
+                      </PrivateRoute>
+                    } />
                     <Route path="/objections" element={<Objections />} />
                     <Route path="/points-bonus" element={<PointsBonus />} />
                     <Route path="/points-role-final" element={<PointsRoleFinal />} />
-                    <Route path="/certification" element={<Certification />} />
+                    <Route path="/roleplay" element={<Roleplay />} />
+                    <Route path="/certification" element={<CertificationRedirect />} />
+                    <Route path="/certification/:userId" element={<Certification />} />
+                    <Route path="/bonus" element={<Bonus />} />
+                    <Route path="/company" element={<Company />} />
+                    <Route path="/exercise-evaluation/:id" element={<ExerciseEvaluation />} />
                     <Route path="/student-exercises/:userId" element={
                       <PrivateRoute requiredRole="trainer">
                         <StudentExercises />
-                      </PrivateRoute>
-                    } />
-                    <Route path="/evaluation-settings" element={
-                      <PrivateRoute requiredRole={["admin", "trainer"] as const}>
-                        <EvaluationSettings />
                       </PrivateRoute>
                     } />
                   </Routes>

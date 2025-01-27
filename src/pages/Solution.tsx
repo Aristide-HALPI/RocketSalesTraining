@@ -15,32 +15,23 @@ const Solution: FC = () => {
     description: ''
   });
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
     if (!currentUser) return;
 
     try {
       setIsSubmitting(true);
       
       // Créer un exercice dans la collection exercises
-      await addDoc(collection(db, 'exercises'), {
-        exerciseId: crypto.randomUUID(),
-        templateId: 'solution',
-        templateVersion: 1,
-        userId: currentUser.uid,
+      await addDoc(collection(db, `users/${currentUser.uid}/exercises`), {
+        title: formData.solutionName,
+        description: formData.description,
+        solution: formData.companyName,
+        type: 'solution',
         status: 'completed',
-        startedAt: new Date().toISOString(),
-        submittedAt: new Date().toISOString(),
-        timeSpent: 0,
-        attempts: 1,
-        answers: {
-          companyName: formData.companyName,
-          solutionName: formData.solutionName,
-          description: formData.description
-        },
-        graded: false, // Nécessite une correction manuelle
-        grade: null,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        createdBy: currentUser.uid,
+        lastUpdated: new Date().toISOString()
       });
 
       setShowSuccess(true);

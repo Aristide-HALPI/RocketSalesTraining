@@ -102,15 +102,17 @@ export const GOALKEEPER_EVALUATION_CRITERIA: EvaluationCriterion[] = [
 export interface GoalkeeperExercise {
   id: string;
   userId: string;
-  status: 'in_progress' | 'submitted' | 'evaluated';
+  status: 'not_started' | 'in_progress' | 'submitted' | 'evaluated';
   firstCall: DialogueSection;
   secondCall: DialogueSection;
-  evaluation: {
+  evaluation?: {
     criteria: EvaluationCriterion[];
     totalScore: number;
     evaluatedBy?: string;
     evaluatedAt?: string;
   };
+  totalScore?: number;
+  maxScore: number;
   createdAt: string;
   updatedAt: string;
 }

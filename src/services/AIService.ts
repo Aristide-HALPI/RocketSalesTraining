@@ -19,6 +19,15 @@ export interface AIEvaluationResponse {
   strengths: string[];
   improvements: string[];
   criteria: AIEvaluationCriterion[];
+  // Scores et feedbacks par section et question
+  scores?: number[][];
+  feedbacks?: string[][];
+}
+
+export interface ExerciseEvaluationRequest {
+  type: 'company' | 'rdv_decideur' | 'objections' | 'cdab';
+  content?: string;
+  sections?: any[];
 }
 
 const AI_API_URL = import.meta.env.VITE_AI_API_URL || 'https://api.example.com';
@@ -50,15 +59,51 @@ export const AIService = {
     }
   },
 
+  async evaluateExercise(exerciseData: ExerciseEvaluationRequest): Promise<AIEvaluationResponse> {
+    try {
+      let requestBody: any;
+
+      if (exerciseData.type === 'company') {
+        requestBody = {
+          type: exerciseData.type,
+          content: exerciseData.content
+        };
+      } else {
+        requestBody = {
+          type: exerciseData.type,
+          sections: exerciseData.sections
+        };
+      }
+      
+      const response = await fetch(`${AI_API_URL}/evaluate-exercise`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${AI_API_KEY}`,
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data as AIEvaluationResponse;
+    } catch (error) {
+      console.error('Error evaluating exercise:', error);
+      throw error;
+    }
+  },
+
   async updateAIEvaluation(userId: string, evaluation: AIEvaluationResponse): Promise<void> {
-    const exerciseRef = doc(db, `users/${userId}/exercises/goalkeeper`);
+    const exerciseRef = doc(db, `users/${userId}/exercises/meeting`);
     const exerciseDoc = await getDoc(exerciseRef);
 
     if (!exerciseDoc.exists()) {
       throw new Error('Exercise not found');
     }
 
-    // Convertir l'évaluation AI en format compatible avec l'exercice
     const evaluationState: Partial<EvaluationState> = {
       status: 'ai_evaluated',
       aiEvaluation: {

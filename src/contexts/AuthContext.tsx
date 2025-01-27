@@ -37,47 +37,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       console.log('Auth state changed:', user?.email);
-      setCurrentUser(user);
+      
       if (user) {
         try {
-          // Vérifier d'abord par email
-          const emailQuery = query(collection(db, 'users'), where('email', '==', user.email));
-          const emailQuerySnapshot = await getDocs(emailQuery);
-          
-          if (!emailQuerySnapshot.empty) {
-            console.log('Found user with matching email');
-            const existingUserData = emailQuerySnapshot.docs[0].data() as User;
-            
-            // Si l'UID est différent, mettre à jour le document avec le nouvel UID
-            if (existingUserData.uid !== user.uid) {
-              console.log('Updating user UID in database');
-              const oldDocRef = doc(db, 'users', emailQuerySnapshot.docs[0].id);
-              const newDocRef = doc(db, 'users', user.uid);
-              
-              await setDoc(newDocRef, {
-                ...existingUserData,
-                uid: user.uid,
-                updatedAt: new Date().toISOString()
-              });
-              
-              // Supprimer l'ancien document
-              await deleteDoc(oldDocRef);
-            }
-            
-            setUserProfile(existingUserData);
-          } else {
-            console.log('No user found with this email');
-            setUserProfile(null);
-            await signOut(auth);
-            throw new Error('Compte non trouvé. Veuillez vous inscrire via la page d\'inscription pour accéder à la plateforme.');
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            console.log('User data from Firestore:', {
+              uid: user.uid,
+              email: user.email,
+              role: userData.role
+            });
+            setUserProfile({ ...user, ...userData });
           }
         } catch (error) {
-          console.error('Error loading user profile:', error);
-          setUserProfile(null);
+          console.error('Error fetching user profile:', error);
         }
-      } else {
-        setUserProfile(null);
       }
+      
+      setCurrentUser(user);
       setLoading(false);
     });
 

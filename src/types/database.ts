@@ -1,6 +1,9 @@
 export type UserRole = 'admin' | 'trainer' | 'learner';
 export type UserStatus = 'actif' | 'inactif' | 'suspendu';
-export type ExerciseStatus = 'draft' | 'published' | 'archived';
+
+// Statut unifié pour tous les exercices
+export type ExerciseStatus = 'not_started' | 'in_progress' | 'submitted' | 'evaluated' | 'draft' | 'published' | 'archived';
+
 export type ExerciseDifficulty = 'débutant' | 'intermédiaire' | 'avancé';
 export type ResourceType = 'pdf' | 'video' | 'link';
 
@@ -182,7 +185,7 @@ export interface UserExercise {
   id: string;
   userId: string;
   exerciseId: string;
-  status: 'not_started' | 'in_progress' | 'submitted' | 'evaluated';
+  status: ExerciseStatus;
   startedAt: string;
   submittedAt?: string;
   responses: Record<string, UserExerciseResponse>;
