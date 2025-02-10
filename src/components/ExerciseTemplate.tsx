@@ -10,7 +10,7 @@ interface ExerciseTemplateProps {
   currentScore?: number;
   maxScore: number;
   hideScore?: boolean;
-  status?: 'not_started' | 'in_progress' | 'submitted' | 'evaluated';
+  status?: 'not_started' | 'in_progress' | 'submitted' | 'evaluated' | 'pending_validation';
   onSubmit?: () => Promise<void>;
   canSubmit?: boolean;
   aiEvaluation?: any;

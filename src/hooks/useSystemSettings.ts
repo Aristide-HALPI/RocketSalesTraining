@@ -1,7 +1,20 @@
 import { useState, useEffect } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import type { SystemSettings } from '../types/database';
+
+const defaultSettings: SystemSettings = {
+  registration: {
+    enabled: true,
+    trainerCodeRequired: true,
+    trainerCode: 'TRAINER2024', // Code par défaut pour les formateurs
+    autoApprove: false
+  },
+  metadata: {
+    lastUpdated: new Date().toISOString(),
+    updatedBy: 'system' // UID du système
+  }
+};
 
 export function useSystemSettings() {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
@@ -11,11 +24,15 @@ export function useSystemSettings() {
   useEffect(() => {
     async function loadSettings() {
       try {
-        const settingsDoc = await getDoc(doc(db, 'settings', 'system'));
+        const settingsRef = doc(db, 'settings', 'system');
+        const settingsDoc = await getDoc(settingsRef);
+        
         if (settingsDoc.exists()) {
           setSettings(settingsDoc.data() as SystemSettings);
         } else {
-          setError('Paramètres système non trouvés');
+          // Si les paramètres n'existent pas, les créer avec les valeurs par défaut
+          await setDoc(settingsRef, defaultSettings);
+          setSettings(defaultSettings);
         }
       } catch (err) {
         console.error('Error loading system settings:', err);

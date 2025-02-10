@@ -1,10 +1,10 @@
 import { db } from '../../../lib/firebase';
-import { doc, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
-import { AIEvaluationResponse } from '../../../services/AIService';
-import { AIService } from '@/services/AIService';
+import { doc, getDoc, setDoc, updateDoc, onSnapshot, collection, getDocs } from 'firebase/firestore';
+import { evaluateExercise, AIEvaluationResponse } from '../../../api/ai/routes/evaluation';
+import { ExerciseStatus } from '../../../types/exercises';
 
 export type DialogueRole = 'commercial' | 'client';
-export type Score = 0 | 1 | 2;
+export type Score = string;
 
 export interface DialogueEntry {
   role: DialogueRole;
@@ -26,10 +26,11 @@ export interface RdvSection {
 export interface RdvDecideurExercise {
   id: string;
   userId: string;
-  status: 'not_started' | 'in_progress' | 'submitted' | 'evaluated' | 'pending_validation';
+  status: ExerciseStatus;
   sections: RdvSection[];
   totalScore?: number;
   maxScore: number;
+  version: number;
   createdAt: string;
   updatedAt: string;
   lastUpdated?: string;
@@ -38,6 +39,36 @@ export interface RdvDecideurExercise {
   evaluatedBy?: string;
   submittedAt?: string;
   trainerFinalComment?: string;
+}
+
+interface AIDialogueEvaluation {
+  index: number;
+  role: DialogueRole;
+  score: string;
+  comment: string;
+}
+
+interface AISection {
+  title: string;
+  dialogues: AIDialogueEvaluation[];
+  sectionScore: number;
+  maxSectionScore: number;
+}
+
+interface AIEvaluationResult {
+  sections: AISection[];
+  generalFeedback: {
+    pointsForts: string;
+    axesAmelioration: string;
+  };
+  sectionScores: {
+    introduction: number;
+    accroche_irresistible: number;
+    proposition_rdv: number;
+    deuxieme_accroche: number;
+  };
+  totalScore: number;
+  finalScoreOutOf40: number;
 }
 
 // Configuration des sections de l'exercice
@@ -57,9 +88,9 @@ export const SECTIONS_CONFIG = [
     ]
   },
   {
-    id: 'premiere_accroche',
-    title: 'II. PREMIÈRE ACCROCHE IRRÉSISTIBLE',
-    description: 'FAITES une « Accroche Irrésistible » pour obtenir votre rendez-vous avec le décideur',
+    id: 'accroche_irresistible',
+    title: 'II. ACCROCHE IRRÉSISTIBLE',
+    description: 'Présentez votre accroche irrésistible',
     dialogues: [
       { role: 'commercial' as DialogueRole, text: '', description: 'Question irrésistible (Motivateur fonctionnel du client)' },
       { role: 'client' as DialogueRole, text: '' },
@@ -69,19 +100,19 @@ export const SECTIONS_CONFIG = [
   },
   {
     id: 'proposition_rdv',
-    title: 'III. PROPOSITION DE RENDEZ-VOUS',
-    description: 'Utilisez la technique de l\'alternative',
+    title: 'III. PROPOSEZ UN RENDEZ-VOUS avec la technique de l\'alternative',
+    description: 'Proposez le rendez-vous et obtenez les coordonnées',
     dialogues: [
       { role: 'commercial' as DialogueRole, text: '', description: 'Proposez le rendez vous avec une alternative' },
       { role: 'client' as DialogueRole, text: '' },
-      { role: 'commercial' as DialogueRole, text: '', description: 'Il n\'oubliez pas de demander le numéro de Mobile et l\'adresse email du client' },
+      { role: 'commercial' as DialogueRole, text: '', description: '!! n\'oubliez pas de demander le numéro de Mobile et l\'adresse email du client' },
       { role: 'client' as DialogueRole, text: '' }
     ]
   },
   {
     id: 'deuxieme_accroche',
-    title: 'IV. DEUXIÈME ACCROCHE IRRÉSISTIBLE',
-    description: 'FAITES une « Accroche Irrésistible » pour obtenir votre rendez-vous avec le décideur',
+    title: 'II. Écrivez une 2ème ACCROCHE IRRÉSISTIBLE avec un AUTRE Motivateur Personnel',
+    description: 'Présentez une deuxième accroche avec un motivateur personnel',
     dialogues: [
       { role: 'commercial' as DialogueRole, text: '', description: 'Motivateur Personnel' },
       { role: 'client' as DialogueRole, text: '' },
@@ -91,149 +122,415 @@ export const SECTIONS_CONFIG = [
   }
 ];
 
+const CURRENT_EXERCISE_VERSION = 2; // Incrémentez ce numéro quand vous changez la structure
+
 function cleanUndefined(obj: any): any {
   return JSON.parse(JSON.stringify(obj));
 }
 
-// Calcule le score total en faisant une règle de trois
-function calculateFinalScore(sections: RdvSection[]): number {
-  const totalPoints = sections.reduce((total, section) => {
-    return total + section.dialogues.reduce((sectionTotal, dialogue) => {
-      // Ne compter que les réponses du commercial
-      return sectionTotal + (dialogue.role === 'commercial' ? (dialogue.score || 0) : 0);
+// Calculer le score total sur 40
+const calculateFinalScore = (exercise: RdvDecideurExercise): number => {
+  if (!exercise.sections || exercise.sections.length === 0) {
+    return 0;
+  }
+
+  // Calculer le score pour chaque section
+  const sectionScores = exercise.sections.map(section => {
+    // Points obtenus dans la section
+    const earnedPoints = section.dialogues.reduce((total, dialogue) => {
+      if (!dialogue.score) return total;
+      return total + parseFloat(dialogue.score);
     }, 0);
-  }, 0);
 
-  // Nombre maximum de points possible (2 points par dialogue du commercial)
-  const maxPossiblePoints = sections.reduce((total, section) => {
-    return total + section.dialogues.filter(d => d.role === 'commercial').length * 2;
-  }, 0);
+    // Points maximum possibles pour la section
+    const maxPoints = section.dialogues.reduce((total, dialogue) => {
+      if (dialogue.role === 'commercial') {
+        return total + 2; // Max score pour commercial
+      } else {
+        return total + 0.25; // Max score pour client
+      }
+    }, 0);
 
-  // Règle de trois pour avoir un score sur 40
-  return Math.round((totalPoints * 40) / maxPossiblePoints);
-}
+    // Score de la section sur 10 points (règle de trois)
+    return (earnedPoints / maxPoints) * 10;
+  });
 
-// Vérifie si l'exercice est vide (aucune réponse saisie)
-const isExerciseEmpty = (sections: RdvSection[]): boolean => {
-  return sections.every(section => 
-    section.dialogues.every(dialogue => !dialogue.text || dialogue.text.trim() === '')
-  );
+  // Le score total est la somme des scores de section (chacune sur 10)
+  const totalScore = sectionScores.reduce((sum, score) => sum + score, 0);
+  
+  // Arrondir à 2 décimales
+  return Math.round(totalScore * 100) / 100;
 };
+
+const EXERCISE_DOC_NAME = 'meeting';
 
 export const rdvDecideurService = {
   async getExercise(userId: string): Promise<RdvDecideurExercise> {
-    const docRef = doc(db, `users/${userId}/exercises`, 'meeting');
+    if (!userId) {
+      console.error('getExercise called without userId');
+      throw new Error('userId is required');
+    }
+
+    console.log('Getting exercise for user:', userId);
+    const docRef = doc(db, `users/${userId}/exercises`, EXERCISE_DOC_NAME);
     const docSnap = await getDoc(docRef);
 
     if (docSnap.exists()) {
-      return docSnap.data() as RdvDecideurExercise;
+      const exercise = docSnap.data() as RdvDecideurExercise;
+      console.log('Exercise loaded:', {
+        id: exercise.id,
+        userId: exercise.userId,
+        status: exercise.status,
+        sections: exercise.sections.map((s: RdvSection) => ({
+          id: s.id,
+          dialoguesCount: s.dialogues.length,
+          hasResponses: s.dialogues.some((d: DialogueEntry) => d.text && d.text.trim() !== '')
+        }))
+      });
+      
+      // Vérifier si l'exercice a besoin d'être mis à jour
+      if (!exercise.version || exercise.version < CURRENT_EXERCISE_VERSION) {
+        console.log('Exercise needs update, current version:', exercise.version);
+        const updatedExercise = await this.updateExerciseToLatestVersion(userId, exercise);
+        return updatedExercise;
+      }
+      
+      return exercise;
     }
 
-    // Créer un nouvel exercice avec le statut initial 'not_started'
+    console.log('Creating new exercise for user:', userId);
     const newExercise: RdvDecideurExercise = {
-      id: 'meeting',
+      id: EXERCISE_DOC_NAME,
       userId,
-      status: 'not_started',
+      status: ExerciseStatus.NotStarted,
       sections: SECTIONS_CONFIG,
       maxScore: 40,
+      version: CURRENT_EXERCISE_VERSION,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    await setDoc(doc(db, `users/${userId}/exercises`, EXERCISE_DOC_NAME), newExercise);
+    return newExercise;
+  },
+
+  async updateExerciseToLatestVersion(userId: string, currentExercise: RdvDecideurExercise): Promise<RdvDecideurExercise> {
+    console.log('Updating exercise to latest version:', {
+      userId,
+      currentVersion: currentExercise.version,
+      targetVersion: CURRENT_EXERCISE_VERSION
+    });
+    
+    const docRef = doc(db, `users/${userId}/exercises`, EXERCISE_DOC_NAME);
+    
+    // Créer un nouvel exercice en conservant le statut et les commentaires existants
+    const updatedExercise: RdvDecideurExercise = {
+      ...currentExercise,
+      sections: SECTIONS_CONFIG.map((newSection, sectionIndex) => {
+        const existingSection = currentExercise.sections[sectionIndex];
+        if (!existingSection) return newSection;
+
+        return {
+          ...newSection,
+          dialogues: newSection.dialogues.map((newDialogue, dialogueIndex) => {
+            const existingDialogue = existingSection.dialogues[dialogueIndex];
+            if (!existingDialogue) return newDialogue;
+
+            return {
+              ...newDialogue,
+              text: existingDialogue.text || '',
+              trainerComment: existingDialogue.trainerComment || ''
+            };
+          })
+        };
+      }),
+      version: CURRENT_EXERCISE_VERSION,
+      updatedAt: new Date().toISOString()
+    };
+
+    // Nettoyer les undefined avant sauvegarde
+    const cleanedExercise = cleanUndefined(updatedExercise);
+    console.log('Updated exercise:', {
+      status: cleanedExercise.status,
+      version: cleanedExercise.version,
+      sections: cleanedExercise.sections.map((s: RdvSection) => ({
+        id: s.id,
+        dialoguesCount: s.dialogues.length,
+        hasResponses: s.dialogues.some((d: DialogueEntry) => d.text && d.text.trim() !== '')
+      }))
+    });
+    
+    await setDoc(docRef, cleanedExercise);
+    return cleanedExercise;
+  },
+
+  async resetExercise(userId: string): Promise<void> {
+    const docRef = doc(db, `users/${userId}/exercises`, EXERCISE_DOC_NAME);
+    const newExercise: RdvDecideurExercise = {
+      id: EXERCISE_DOC_NAME,
+      userId,
+      status: ExerciseStatus.NotStarted,
+      sections: SECTIONS_CONFIG,
+      maxScore: 40,
+      version: CURRENT_EXERCISE_VERSION,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
     await setDoc(docRef, newExercise);
-    return newExercise;
+  },
+
+  async updateAllExercises(): Promise<void> {
+    try {
+      // Récupérer tous les utilisateurs
+      const usersRef = collection(db, 'users');
+      const usersSnap = await getDocs(usersRef);
+
+      // Pour chaque utilisateur
+      const updatePromises = usersSnap.docs.map(async (userDoc) => {
+        const userId = userDoc.id;
+        const exerciseRef = doc(db, `users/${userId}/exercises`, EXERCISE_DOC_NAME);
+        const exerciseSnap = await getDoc(exerciseRef);
+
+        if (exerciseSnap.exists()) {
+          const currentExercise = exerciseSnap.data() as RdvDecideurExercise;
+          
+          // Créer un nouvel exercice en conservant le statut et les commentaires existants
+          const updatedExercise: RdvDecideurExercise = {
+            ...currentExercise,
+            sections: SECTIONS_CONFIG.map((newSection, sectionIndex) => {
+              const existingSection = currentExercise.sections[sectionIndex];
+              if (!existingSection) return newSection;
+
+              return {
+                ...newSection,
+                dialogues: newSection.dialogues.map((newDialogue, dialogueIndex) => {
+                  const existingDialogue = existingSection.dialogues[dialogueIndex];
+                  if (!existingDialogue) return newDialogue;
+
+                  return {
+                    ...newDialogue,
+                    text: existingDialogue.text || newDialogue.text,
+                    trainerComment: existingDialogue.trainerComment
+                  };
+                })
+              };
+            }),
+            version: CURRENT_EXERCISE_VERSION,
+            updatedAt: new Date().toISOString()
+          };
+
+          await setDoc(exerciseRef, updatedExercise);
+        }
+      });
+
+      await Promise.all(updatePromises);
+    } catch (error) {
+      console.error('Error updating exercises:', error);
+      throw error;
+    }
   },
 
   subscribeToExercise(userId: string, callback: (exercise: RdvDecideurExercise) => void) {
-    const docRef = doc(db, `users/${userId}/exercises`, 'meeting');
-    return onSnapshot(docRef, (doc) => {
-      if (doc.exists()) {
-        callback(doc.data() as RdvDecideurExercise);
+    console.log('Setting up exercise subscription for:', userId);
+    const docRef = doc(db, `users/${userId}/exercises`, EXERCISE_DOC_NAME);
+    
+    return onSnapshot(docRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const exercise = snapshot.data() as RdvDecideurExercise;
+        console.log('Exercise snapshot update:', {
+          id: exercise.id,
+          status: exercise.status,
+          hasResponses: exercise.sections.some((section: RdvSection) => 
+            section.dialogues.some((dialogue: DialogueEntry) => 
+              dialogue.text && dialogue.text.trim() !== ''
+            )
+          )
+        });
+        callback(exercise);
+      } else {
+        console.log('No exercise found for user:', userId);
       }
+    }, (error) => {
+      console.error('Error in exercise subscription:', error);
     });
   },
 
-  async updateExercise(userId: string, updates: Partial<RdvDecideurExercise>) {
-    const docRef = doc(db, `users/${userId}/exercises`, 'meeting');
-    const docSnap = await getDoc(docRef);
+  async updateExercise(userId: string, updates: Partial<RdvDecideurExercise>): Promise<void> {
+    const docRef = doc(db, `users/${userId}/exercises`, EXERCISE_DOC_NAME);
     
+    // Nettoyer les undefined avant sauvegarde
+    const cleanedUpdates = cleanUndefined(updates);
+    await updateDoc(docRef, cleanedUpdates);
+  },
+
+  async submitExercise(userId: string): Promise<void> {
+    console.log('Submitting exercise for user:', userId);
+    const docRef = doc(db, `users/${userId}/exercises`, EXERCISE_DOC_NAME);
+    const docSnap = await getDoc(docRef);
+
     if (!docSnap.exists()) {
       throw new Error('Exercise not found');
     }
 
-    const currentExercise = docSnap.data() as RdvDecideurExercise;
-    const updatedExercise = { ...currentExercise, ...updates };
+    const exercise = docSnap.data() as RdvDecideurExercise;
+    console.log('Current exercise state:', {
+      id: exercise.id,
+      status: exercise.status,
+      hasResponses: exercise.sections.some((section: RdvSection) => 
+        section.dialogues.some((dialogue: DialogueEntry) => 
+          dialogue.text && dialogue.text.trim() !== ''
+        )
+      )
+    });
 
-    // Mise à jour du statut en fonction du contenu
-    if (updatedExercise.sections && updatedExercise.status !== 'evaluated' && updatedExercise.status !== 'submitted') {
-      updatedExercise.status = isExerciseEmpty(updatedExercise.sections) ? 'not_started' : 'in_progress';
-    }
+    const updatedExercise = {
+      ...exercise,
+      status: ExerciseStatus.Submitted,
+      submittedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
 
-    await updateDoc(docRef, cleanUndefined(updatedExercise));
+    // Utiliser setDoc au lieu de updateDoc pour s'assurer que tout le document est mis à jour
+    await setDoc(docRef, cleanUndefined(updatedExercise));
+    console.log('Exercise submitted successfully, new status:', updatedExercise.status);
   },
 
-  async submitExercise(userId: string) {
-    const docRef = doc(db, `users/${userId}/exercises`, 'meeting');
-    const exercise = await this.getExercise(userId);
-    
-    try {
-      await updateDoc(docRef, {
-        status: 'submitted',
-        submittedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        lastUpdated: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error('Error submitting rdv decideur exercise:', error);
-      throw error;
+  async evaluateExercise(userId: string): Promise<AIEvaluationResponse> {
+    const docRef = doc(db, `users/${userId}/exercises`, EXERCISE_DOC_NAME);
+    const docSnap = await getDoc(docRef);
+
+    if (!docSnap.exists()) {
+      throw new Error('Exercise not found');
     }
+
+    const exercise = docSnap.data() as RdvDecideurExercise;
+    
+    // Extraire tous les dialogues de toutes les sections
+    const allDialogues = exercise.sections.flatMap(section => section.dialogues);
+    
+    const evaluation = await evaluateExercise(userId, allDialogues);
+    if (!evaluation) {
+      throw new Error('Failed to evaluate exercise');
+    }
+
+    // Mettre à jour l'exercice avec l'évaluation
+    const updatedExercise = {
+      ...exercise,
+      aiEvaluation: evaluation,
+      totalScore: calculateFinalScore(exercise),
+      evaluatedAt: new Date().toISOString(),
+      status: ExerciseStatus.Evaluated
+    };
+
+    await setDoc(docRef, cleanUndefined(updatedExercise));
+    return evaluation;
   },
 
-  async evaluateExercise(userId: string, sections: RdvDecideurExercise['sections'], evaluatorId: string) {
-    const docRef = doc(db, `users/${userId}/exercises`, 'meeting');
-    
-    try {
-      const totalScore = calculateFinalScore(sections);
-      const aiEvaluation = await AIService.evaluateExercise(sections);
-
-      await updateDoc(docRef, {
-        status: 'evaluated',
-        sections,
-        totalScore,
-        aiEvaluation,
-        evaluatedAt: new Date().toISOString(),
-        evaluatedBy: evaluatorId,
-        updatedAt: new Date().toISOString(),
-        lastUpdated: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error('Error evaluating rdv decideur exercise:', error);
-      throw error;
+  async evaluateWithAI(userId: string, organizationId: string): Promise<RdvDecideurExercise> {
+    if (!userId) {
+      throw new Error('User ID is required');
     }
-  },
 
-  async evaluateWithAI(userId: string): Promise<void> {
-    const docRef = doc(db, `users/${userId}/exercises`, 'meeting');
-    const exercise = await this.getExercise(userId);
-    
     try {
-      // Obtenir l'évaluation de l'IA
-      const aiEvaluation = await AIService.evaluateExercise({
+      const exercise = await this.getExercise(userId);
+      if (!exercise) {
+        throw new Error('Exercise not found');
+      }
+
+      // Formater le dialogue pour l'IA
+      const formattedContent = {
         type: 'rdv_decideur',
-        sections: exercise.sections
+        exercise: {
+          sections: exercise.sections.map(section => ({
+            id: section.id,
+            title: section.title,
+            dialogues: section.dialogues.map(dialogue => ({
+              role: dialogue.role,
+              text: dialogue.text,
+              description: dialogue.description
+            }))
+          }))
+        }
+      };
+
+      console.log('Formatted content for AI:', formattedContent);
+
+      // Évaluer avec l'IA
+      const response = await evaluateExercise(
+        organizationId,
+        JSON.stringify(formattedContent),
+        'rdv_decideur'
+      );
+
+      console.log('AI Response:', response);
+
+      // Traiter la réponse de l'IA
+      const aiEvaluation: AIEvaluationResult = typeof response === 'string' ? JSON.parse(response) : response;
+
+      console.log('AI Sections:', aiEvaluation.sections.map(s => s.title));
+      console.log('Exercise Sections:', exercise.sections.map(s => s.title));
+
+      // Mettre à jour les sections avec les scores et commentaires
+      const updatedSections = exercise.sections.map(section => {
+        console.log('Looking for section:', section.title);
+        
+        const aiSection = aiEvaluation.sections.find(s => {
+          console.log('Comparing with:', s.title);
+          return s.title === section.title;
+        });
+
+        if (!aiSection) {
+          console.warn(`Section "${section.title}" not found in AI evaluation`);
+          console.log('Available sections:', aiEvaluation.sections.map(s => s.title));
+          return section;
+        }
+
+        // Mettre à jour les dialogues de la section
+        const updatedDialogues = section.dialogues.map((dialogue, index) => {
+          const evaluation = aiSection.dialogues.find(d => 
+            d.index === index && d.role === dialogue.role
+          );
+          
+          if (evaluation) {
+            return {
+              ...dialogue,
+              score: evaluation.score.toString(),
+              trainerComment: evaluation.comment
+            };
+          }
+          return dialogue;
+        });
+
+        return {
+          ...section,
+          dialogues: updatedDialogues,
+          trainerGeneralComment: `Score de la section: ${aiSection.sectionScore}/10\n\nPoints forts :\n${aiEvaluation.generalFeedback.pointsForts}\n\nAxes d'amélioration :\n${aiEvaluation.generalFeedback.axesAmelioration}`
+        };
       });
 
-      // Mise à jour de l'exercice avec l'évaluation
-      exercise.score = aiEvaluation.score;
-      exercise.feedback = aiEvaluation.feedback;
-      exercise.status = 'evaluated';
-      exercise.evaluatedAt = new Date().toISOString();
-      exercise.evaluatedBy = 'AI';
-      exercise.lastUpdated = new Date().toISOString();
-      
-      await setDoc(docRef, cleanUndefined(exercise));
+      // Calculer le score total (somme des scores de section)
+      const totalScore = Object.values(aiEvaluation.sectionScores).reduce((sum, score) => sum + score, 0);
+
+      // Mettre à jour l'exercice avec l'évaluation
+      const updatedExercise = {
+        ...exercise,
+        sections: updatedSections,
+        aiEvaluation: response,
+        totalScore: calculateFinalScore(exercise), // Utiliser calculateFinalScore au lieu du score de l'IA
+        maxScore: 40,
+        evaluatedAt: new Date().toISOString(),
+        status: ExerciseStatus.Evaluated,
+        updatedAt: new Date().toISOString()
+      };
+
+      // Sauvegarder les modifications
+      const docRef = doc(db, `users/${userId}/exercises`, EXERCISE_DOC_NAME);
+      await setDoc(docRef, cleanUndefined(updatedExercise));
+
+      return updatedExercise;
     } catch (error) {
-      console.error('Error evaluating exercise with AI:', error);
+      console.error('Error in evaluateWithAI:', error);
       throw error;
     }
   }

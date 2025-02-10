@@ -1,38 +1,16 @@
 import { useEffect, useState, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
-import { outilsCdabService, type OutilsCdabExercise } from '../services/outilsCdabService';
-import { cn } from '../../../lib/utils';
+import { outilsCdabService, type OutilsCdabExercise, type QualificationItem } from '../services/outilsCdabService';
 import { toast } from 'react-hot-toast';
 import { useCdabStore } from '../../../stores/cdabStore';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
-const colors = {
-  problems: 'bg-red-100',        // Rouge clair
-  impact: 'bg-purple-100',        // Mauve clair
-  confirmation: 'bg-green-100',   // Vert clair
-  benefit: 'bg-red-100',         // Rouge clair
-  solution: 'bg-gray-100',        // Gris clair
-  proofs: 'bg-yellow-100',       // Jaune clair
-};
-
-const borderColors = {
-  problems: 'border-red-200',
-  impact: 'border-purple-200',
-  confirmation: 'border-green-200',
-  benefit: 'border-red-200',
-  solution: 'border-gray-200',
-  proofs: 'border-yellow-200',
-};
-
 export default function OutilsCdab() {
-  console.log('=== Montage du composant OutilsCdab ===');
-  
-  const { currentUser, userProfile, authLoading } = useAuth();
-  const { currentExercise: cdabExercise, outilsExercise, updateOutilsExercise } = useCdabStore();
-  const [loading, setLoading] = useState(true);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const { currentUser, userProfile, loading } = useAuth();
+  const { currentExercise: cdabExercise, outilsExercise, updateOutilsExercise, updateExercise } = useCdabStore();
+  const [isLoading, setIsLoading] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -40,59 +18,52 @@ export default function OutilsCdab() {
   const searchParams = new URLSearchParams(location.search);
   const studentIdParam = searchParams.get('userId');
   const isFormateur = userProfile?.role === 'trainer' || userProfile?.role === 'admin';
-  const targetUserId = studentIdParam || currentUser?.uid;
+  const targetUserId = studentIdParam || currentUser?.uid || '';
 
-  console.log('Auth state:', { 
-    currentUser: currentUser?.email, 
-    userProfile, 
-    isFormateur, 
-    targetUserId,
-    studentIdParam 
-  });
-
-  // Charger l'exercice initial
   useEffect(() => {
-    if (authLoading) return;
+    if (loading) {
+      return;
+    }
 
     if (!currentUser) {
-      console.log('Pas d\'utilisateur connecté, redirection vers /login');
       navigate('/login');
       return;
     }
 
     if (!targetUserId) {
-      console.error('Pas d\'ID utilisateur cible');
       return;
     }
 
-    // Permettre l'accès si c'est un formateur ou si c'est l'exercice de l'utilisateur connecté
     if (!isFormateur && studentIdParam && studentIdParam !== currentUser.uid) {
-      console.log('Accès non autorisé, redirection vers la page d\'accueil');
       navigate('/');
       return;
     }
 
-    const loadExercise = async () => {
+    const loadExercises = async () => {
       try {
-        const exercise = await outilsCdabService.getExercise(targetUserId);
-        updateOutilsExercise(exercise);
+        const cdabService = (await import('../../../features/cdab/services/cdabService')).cdabService;
+        const cdabExerciseData = await cdabService.getExercise(targetUserId);
+        updateExercise(cdabExerciseData);
+
+        const outilsExerciseData = await outilsCdabService.getExercise(targetUserId);
+        updateOutilsExercise(outilsExerciseData);
+
         setIsInitialized(true);
-        setLoading(false);
+        setIsLoading(false);
       } catch (error) {
-        console.error('Erreur lors du chargement de l\'exercice:', error);
-        toast.error('Erreur lors du chargement de l\'exercice');
-        setLoading(false);
+        console.error('Erreur lors du chargement des exercices:', error);
+        toast.error('Erreur lors du chargement des exercices');
+        setIsLoading(false);
       }
     };
 
-    loadExercise();
-  }, [currentUser?.uid, targetUserId, authLoading, isFormateur, studentIdParam]);
+    loadExercises();
+  }, [currentUser?.uid, targetUserId, loading, isFormateur, studentIdParam]);
 
-  // Synchroniser avec les données de CDAB
   useEffect(() => {
-    if (!cdabExercise || !outilsExercise || !targetUserId || !isInitialized || loading) return;
+    if (!cdabExercise || !outilsExercise || !targetUserId || !isInitialized || isLoading) return;
 
-    const updatedExercise = {
+    const updatedExercise: OutilsCdabExercise = {
       ...outilsExercise,
       solution: cdabExercise.characteristics.map((char, index) => ({
         ...outilsExercise.solution[index],
@@ -105,9 +76,9 @@ export default function OutilsCdab() {
       qualification: cdabExercise.characteristics.map((char, index) => ({
         ...outilsExercise.qualification[index],
         problems: char.problems || '',
-        problemImpact: char.impact || '',
-        clientConfirmation: char.confirmation || '',
-        acceptedBenefit: char.benefit || ''
+        problemImpact: (char.impact || '') as string,
+        clientConfirmation: (char.confirmation || '') as string,
+        acceptedBenefit: (char.benefit || '') as string
       }))
     };
 
@@ -122,8 +93,10 @@ export default function OutilsCdab() {
     }
   }, [cdabExercise, isInitialized]);
 
-  const handleQualificationChange = async (index: number, field: string, value: string, event: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const updatedExercise = {
+  const handleQualificationChange = async (index: number, field: keyof QualificationItem, value: string, event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (!outilsExercise) return;
+
+    const updatedExercise: OutilsCdabExercise = {
       ...outilsExercise,
       qualification: outilsExercise.qualification.map((q, i) => 
         i === index ? { ...q, [field]: value } : q
@@ -131,12 +104,10 @@ export default function OutilsCdab() {
     };
     updateOutilsExercise(updatedExercise);
 
-    // Auto-redimensionnement du textarea
     const textarea = event.target;
     textarea.style.height = 'auto';
     textarea.style.height = `${textarea.scrollHeight}px`;
 
-    // Sauvegarde automatique
     try {
       await outilsCdabService.updateExercise(targetUserId, updatedExercise);
     } catch (error) {
@@ -151,12 +122,10 @@ export default function OutilsCdab() {
     if (!contentRef.current) return;
 
     try {
-      // Afficher un toast de chargement
       toast.loading('Génération du PDF en cours...');
 
-      // Capturer le contenu
       const canvas = await html2canvas(contentRef.current, {
-        scale: 2, // Meilleure qualité
+        scale: 2, 
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff'
@@ -165,14 +134,12 @@ export default function OutilsCdab() {
       const contentWidth = canvas.width;
       const contentHeight = canvas.height;
 
-      // Créer le PDF au format A4
       const pdf = new jsPDF({
         orientation: contentWidth > contentHeight ? 'l' : 'p',
         unit: 'px',
         format: [contentWidth, contentHeight]
       });
 
-      // Ajouter l'image au PDF
       pdf.addImage(
         canvas.toDataURL('image/png'),
         'PNG',
@@ -184,10 +151,8 @@ export default function OutilsCdab() {
         'FAST'
       );
 
-      // Sauvegarder le PDF
       pdf.save('OutilsCDAB.pdf');
 
-      // Fermer le toast de chargement et afficher un succès
       toast.dismiss();
       toast.success('PDF généré avec succès');
     } catch (error) {
@@ -197,7 +162,7 @@ export default function OutilsCdab() {
     }
   };
 
-  if (loading || authLoading) {
+  if (isLoading || loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-gray-900"></div>
@@ -218,9 +183,8 @@ export default function OutilsCdab() {
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div ref={contentRef}>
-        {outilsExercise.solution.map((row, index) => (
+        {outilsExercise.solution.map((_, index) => (
           <div key={index} className="space-y-4">
-            {/* Section principale avec le dégradé */}
             <div className="border-2 border-gray-200 rounded-lg overflow-hidden shadow-lg">
               <div className="bg-gradient-to-r from-indigo-600 to-indigo-800 text-white p-4">
                 <h2 className="text-xl font-bold">
@@ -229,14 +193,12 @@ export default function OutilsCdab() {
               </div>
 
               <div className="p-4 space-y-6">
-                {/* Section QUALIFICATION */}
                 <div className="border-2 border-gray-200 rounded-lg overflow-hidden">
                   <div className="bg-gradient-to-r from-indigo-600 to-indigo-800 text-white p-3">
                     <h2 className="text-lg font-semibold">QUALIFICATION</h2>
                   </div>
                   
                   <div className="grid grid-cols-4 gap-4 p-4">
-                    {/* Les problèmes à identifier */}
                     <div className="bg-pink-200 rounded-lg p-4 flex flex-col h-full">
                       <div className="text-pink-800 font-semibold mb-1">
                         Les problèmes à identifier
@@ -249,7 +211,6 @@ export default function OutilsCdab() {
                       </div>
                     </div>
 
-                    {/* Impact sur le prospect */}
                     <div className="bg-pink-100 rounded-lg p-4 flex flex-col h-full">
                       <div className="text-pink-700 font-semibold mb-1">
                         Impact sur le prospect
@@ -266,7 +227,6 @@ export default function OutilsCdab() {
                       />
                     </div>
 
-                    {/* Confirmation du prospect */}
                     <div className="bg-pink-100 rounded-lg p-4 flex flex-col h-full">
                       <div className="text-pink-700 font-semibold mb-1">
                         Confirmation du prospect
@@ -283,7 +243,6 @@ export default function OutilsCdab() {
                       />
                     </div>
 
-                    {/* Bénéfice accepté */}
                     <div className="bg-pink-100 rounded-lg p-4 flex flex-col h-full">
                       <div className="text-pink-700 font-semibold mb-1">
                         Bénéfice accepté
@@ -302,14 +261,12 @@ export default function OutilsCdab() {
                   </div>
                 </div>
 
-                {/* Section PRÉSENTATION DE LA SOLUTION PROPOSÉE */}
                 <div className="border-2 border-gray-200 rounded-lg overflow-hidden">
                   <div className="bg-gradient-to-r from-indigo-600 to-indigo-800 text-white p-3">
                     <h2 className="text-lg font-semibold">PRÉSENTATION DE LA SOLUTION PROPOSÉE</h2>
                   </div>
                   
                   <div className="grid grid-cols-5 gap-4 p-4">
-                    {/* Caractéristique */}
                     <div className="bg-purple-100 rounded-lg p-4 flex flex-col h-full">
                       <div className="text-purple-700 font-semibold mb-1">
                         Caractéristique
@@ -322,7 +279,6 @@ export default function OutilsCdab() {
                       </div>
                     </div>
 
-                    {/* Définition */}
                     <div className="bg-blue-100 rounded-lg p-4 flex flex-col h-full">
                       <div className="text-blue-700 font-semibold mb-1">
                         Définition
@@ -335,7 +291,6 @@ export default function OutilsCdab() {
                       </div>
                     </div>
 
-                    {/* Avantages */}
                     <div className="bg-emerald-100 rounded-lg p-4 flex flex-col h-full">
                       <div className="text-emerald-700 font-semibold mb-1">
                         Avantages
@@ -348,7 +303,6 @@ export default function OutilsCdab() {
                       </div>
                     </div>
 
-                    {/* Bénéfices */}
                     <div className="bg-orange-100 rounded-lg p-4 flex flex-col h-full">
                       <div className="text-orange-700 font-semibold mb-1">
                         Bénéfices
@@ -361,7 +315,6 @@ export default function OutilsCdab() {
                       </div>
                     </div>
 
-                    {/* Preuves */}
                     <div className="bg-yellow-100 rounded-lg p-4 flex flex-col h-full">
                       <div className="text-yellow-700 font-semibold mb-1">
                         Preuves
@@ -381,7 +334,6 @@ export default function OutilsCdab() {
         ))}
       </div>
 
-      {/* Bouton d'export PDF */}
       <div className="fixed bottom-6 right-6">
         <button
           onClick={handleExportPDF}

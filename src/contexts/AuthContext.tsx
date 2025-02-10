@@ -6,7 +6,7 @@ import {
   onAuthStateChanged,
   type User as FirebaseUser
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, collection, getDocs, query, where, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { User, UserRole, UserStatus, UserMetadata, UserPermissions } from '../types/user';
 
@@ -42,17 +42,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           const userDoc = await getDoc(doc(db, 'users', user.uid));
           if (userDoc.exists()) {
-            const userData = userDoc.data();
+            const userData = userDoc.data() as User;
+            const defaultOrgId = import.meta.env.VITE_FABRILE_ORG_ID;
+            
             console.log('User data from Firestore:', {
               uid: user.uid,
               email: user.email,
-              role: userData.role
+              role: userData.role,
+              organizationId: userData.organizationId || defaultOrgId
             });
-            setUserProfile({ ...user, ...userData });
+            
+            if (!userData.organizationId) {
+              console.log('Using default organization ID:', defaultOrgId);
+            }
+            
+            setUserProfile({
+              ...userData,
+              organizationId: userData.organizationId || defaultOrgId
+            });
           }
         } catch (error) {
           console.error('Error fetching user profile:', error);
         }
+      } else {
+        setUserProfile(null);
       }
       
       setCurrentUser(user);
@@ -65,6 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function register(email: string, password: string, userData: Partial<User>) {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
+    const defaultOrgId = import.meta.env.VITE_FABRILE_ORG_ID;
 
     const currentTime = new Date().toISOString();
     const metadata: UserMetadata = {
@@ -92,7 +106,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       updatedAt: currentTime,
       lastLogin: currentTime,
       permissions: userPermissions,
-      metadata: metadata
+      metadata: metadata,
+      organizationId: userData.organizationId || defaultOrgId
     };
 
     await setDoc(doc(db, 'users', user.uid), userDoc);

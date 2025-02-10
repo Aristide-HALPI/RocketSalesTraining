@@ -1,13 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { iiepService, IIEPExercise } from '../features/iiep/services/iiepService';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { iiepService, IIEPExercise, IIEPSection, IIEPDialogue } from '../features/iiep/services/iiepService';
 import { toast } from 'react-toastify';
-import { AIService } from '../features/iiep/services/AIService';
 import { ExerciseTemplate } from '../components/ExerciseTemplate';
-import { Button } from '../components/ui/button';
 
 export default function IIEP() {
   const { currentUser, userProfile } = useAuth();
@@ -61,6 +57,27 @@ export default function IIEP() {
     };
 
     loadExercise();
+
+    // Souscrire aux mises à jour en temps réel
+    const unsubscribe = iiepService.subscribeToExercise(targetUserId, (updatedExercise: IIEPExercise) => {
+      setExercise(updatedExercise);
+      
+      // Mettre à jour les feedbacks et scores locaux
+      const feedbacks: {[key: string]: string} = {};
+      const scores: {[key: string]: number} = {};
+      updatedExercise.sections.forEach((section: IIEPSection) => {
+        section.dialogues.forEach((dialogue: IIEPDialogue, dialogueIndex: number) => {
+          const key = `${section.id}-${dialogueIndex}`;
+          if (dialogue.feedback) feedbacks[key] = dialogue.feedback;
+          if (dialogue.score !== undefined) scores[key] = dialogue.score;
+        });
+      });
+      setLocalFeedbacks(feedbacks);
+      setLocalScores(scores);
+    });
+
+    // Nettoyer la souscription quand le composant est démonté
+    return () => unsubscribe();
   }, [targetUserId]);
 
   const handleTextChange = (sectionId: string, dialogueIndex: number, value: string) => {
@@ -84,40 +101,67 @@ export default function IIEP() {
     setDebouncedUpdate(timeoutId);
   };
 
-  const handleFeedbackChange = (sectionId: string, dialogueIndex: number, value: string) => {
-    if (!exercise || !targetUserId || !isFormateur) return;
+  const handleFeedbackChange = async (key: string, value: string) => {
+    if (!exercise || !targetUserId) return;
 
-    const key = `${sectionId}-${dialogueIndex}`;
     setLocalFeedbacks(prev => ({ ...prev, [key]: value }));
+    if (debouncedUpdate) clearTimeout(debouncedUpdate);
 
-    if (debouncedUpdate) {
-      clearTimeout(debouncedUpdate);
-    }
-
-    const timeoutId = setTimeout(() => {
-      const updatedExercise = { ...exercise };
-      const sectionIndex = updatedExercise.sections.findIndex(s => s.id === sectionId);
-      if (sectionIndex === -1) return;
-
-      updatedExercise.sections[sectionIndex].dialogues[dialogueIndex].feedback = value;
-      iiepService.updateExercise(targetUserId, updatedExercise);
-    }, 1000);
-
-    setDebouncedUpdate(timeoutId);
-  };
-
-  const handleScoreChange = (sectionId: string, dialogueIndex: number, score: number) => {
-    if (!exercise || !targetUserId || !isFormateur) return;
-
-    const key = `${sectionId}-${dialogueIndex}`;
-    setLocalScores(prev => ({ ...prev, [key]: score }));
-
+    const [sectionId, dialogueIndexStr] = key.split('-');
+    const dialogueIndex = parseInt(dialogueIndexStr, 10);
     const updatedExercise = { ...exercise };
     const sectionIndex = updatedExercise.sections.findIndex(s => s.id === sectionId);
-    if (sectionIndex === -1) return;
+    if (sectionIndex === -1 || isNaN(dialogueIndex)) return;
 
-    updatedExercise.sections[sectionIndex].dialogues[dialogueIndex].score = score;
-    iiepService.updateExercise(targetUserId, updatedExercise);
+    updatedExercise.sections[sectionIndex].dialogues[dialogueIndex].feedback = value;
+    setExercise(updatedExercise);
+
+    setDebouncedUpdate(
+      setTimeout(async () => {
+        await iiepService.updateExercise(targetUserId, updatedExercise);
+      }, 1000)
+    );
+  };
+
+  const handleScoreChange = async (key: string, value: number) => {
+    if (!exercise || !targetUserId) return;
+
+    setLocalScores(prev => ({ ...prev, [key]: value }));
+    if (debouncedUpdate) clearTimeout(debouncedUpdate);
+
+    const [sectionId, dialogueIndexStr] = key.split('-');
+    const dialogueIndex = parseInt(dialogueIndexStr, 10);
+    const updatedExercise = { ...exercise };
+    const sectionIndex = updatedExercise.sections.findIndex(s => s.id === sectionId);
+    if (sectionIndex === -1 || isNaN(dialogueIndex)) return;
+
+    updatedExercise.sections[sectionIndex].dialogues[dialogueIndex].score = value;
+
+    // Recalculer le score total avec la règle de trois
+    let totalPoints = 0;
+    let maxPossiblePoints = 0;
+    updatedExercise.sections.forEach(section => {
+      section.dialogues.forEach(dialogue => {
+        if (dialogue.type === 'commercial') {
+          if (dialogue.score !== undefined) {
+            totalPoints += dialogue.score;
+          }
+          // Chaque dialogue commercial vaut 4 points maximum
+          maxPossiblePoints += 4;
+        }
+      });
+    });
+
+    // Appliquer la règle de trois pour avoir un score sur 30
+    updatedExercise.totalScore = Math.round((totalPoints / maxPossiblePoints) * 30);
+
+    setExercise(updatedExercise);
+
+    setDebouncedUpdate(
+      setTimeout(async () => {
+        await iiepService.updateExercise(targetUserId, updatedExercise);
+      }, 1000)
+    );
   };
 
   const handleSubmit = async () => {
@@ -141,44 +185,46 @@ export default function IIEP() {
     }
   };
 
-  const handleSaveEvaluation = async () => {
-    if (!exercise || !targetUserId || !currentUser?.uid || !isFormateur) return;
-
-    try {
-      setLoading(true);
-      await iiepService.updateExercise(targetUserId, exercise);
-    } catch (err) {
-      console.error('Erreur lors de la sauvegarde:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePublishEvaluation = async () => {
-    if (!exercise || !targetUserId || !currentUser?.uid || !isFormateur) return;
-
-    try {
-      setLoading(true);
-      await updateDoc(doc(db, `users/${targetUserId}/exercises/iiep`), {
-        status: 'evaluated',
-        evaluatedAt: new Date().toISOString(),
-        evaluatedBy: currentUser.uid
-      });
-    } catch (err) {
-      console.error('Erreur lors de la publication:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const canEvaluate = isFormateur && exercise?.status !== 'not_started' && exercise?.status !== 'published';
 
   const handleAIEvaluation = async () => {
-    if (!exercise || !targetUserId || !isFormateur) return;
+    if (!targetUserId || !exercise || !canEvaluate) {
+      console.error('Cannot evaluate exercise:', {
+        targetUserId,
+        hasExercise: !!exercise,
+        canEvaluate,
+        status: exercise?.status
+      });
+      return;
+    }
 
     try {
       setLoading(true);
-      // TODO: Implémenter l'évaluation IA
+      await iiepService.evaluateWithAI(targetUserId);
+      
+      // Recharger l'exercice pour obtenir les nouvelles données
+      const updatedExercise = await iiepService.getExercise(targetUserId);
+      if (updatedExercise) {
+        setExercise(updatedExercise);
+        
+        // Mettre à jour les feedbacks et scores locaux
+        const feedbacks: {[key: string]: string} = {};
+        const scores: {[key: string]: number} = {};
+        updatedExercise.sections.forEach(section => {
+          section.dialogues.forEach((dialogue, dialogueIndex) => {
+            const key = `${section.id}-${dialogueIndex}`;
+            if (dialogue.feedback) feedbacks[key] = dialogue.feedback;
+            if (dialogue.score !== undefined) scores[key] = dialogue.score;
+          });
+        });
+        setLocalFeedbacks(feedbacks);
+        setLocalScores(scores);
+      }
+      
+      toast.success("L'exercice a été évalué par l'IA");
     } catch (error) {
-      console.error('Erreur lors de l\'évaluation IA:', error);
+      console.error("Erreur lors de l'évaluation IA:", error);
+      toast.error("Erreur lors de l'évaluation par l'IA");
     } finally {
       setLoading(false);
     }
@@ -191,8 +237,8 @@ export default function IIEP() {
         description="Identifiez les indices de l'exercice du pouvoir"
         maxScore={100}
       >
-        <div className="flex items-center justify-center p-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+        <div className="flex justify-center items-center h-64">
+          <p className="text-gray-500">Chargement de l'exercice...</p>
         </div>
       </ExerciseTemplate>
     );
@@ -232,20 +278,8 @@ export default function IIEP() {
             <span className="text-blue-600 font-medium">Mode Formateur</span>
             <button
               className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50"
-              onClick={async () => {
-                if (!targetUserId) return;
-                try {
-                  setLoading(true);
-                  await iiepService.evaluateWithAI(targetUserId);
-                  toast.success("L'exercice a été évalué par l'IA");
-                } catch (error) {
-                  console.error("Erreur lors de l'évaluation IA:", error);
-                  toast.error("Erreur lors de l'évaluation par l'IA");
-                } finally {
-                  setLoading(false);
-                }
-              }}
-              disabled={loading || !exercise || exercise.status !== 'submitted'}
+              onClick={handleAIEvaluation}
+              disabled={loading || !exercise || !canEvaluate}
             >
               {loading ? 'Évaluation en cours...' : 'Correction IA'}
             </button>
@@ -299,16 +333,18 @@ export default function IIEP() {
                               <div className="px-4 py-3 bg-gray-50 border-t">
                                 <label className="block text-sm font-medium text-gray-600 mb-1">Score:</label>
                                 <div className="flex items-center space-x-2">
-                                  <select
-                                    className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500 sm:text-sm"
+                                  <input
+                                    type="number"
+                                    className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500 sm:text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                     value={localScores[`${section.id}-${dialogueIndex}`] || 0}
-                                    onChange={(e) => handleScoreChange(section.id, dialogueIndex, parseInt(e.target.value))}
-                                  >
-                                    {[0, 1, 2].map((score) => (
-                                      <option key={score} value={score}>{score}</option>
-                                    ))}
-                                  </select>
-                                  <span className="text-sm text-gray-500">points</span>
+                                    onChange={(e) => {
+                                      const value = Math.min(4, Math.max(0, parseInt(e.target.value) || 0));
+                                      handleScoreChange(`${section.id}-${dialogueIndex}`, value);
+                                    }}
+                                    min="0"
+                                    max="4"
+                                  />
+                                  <span className="text-sm text-gray-500">/ 4 points</span>
                                 </div>
                               </div>
                             )}
@@ -319,21 +355,21 @@ export default function IIEP() {
                           <div className="bg-white rounded-lg shadow-sm">
                             <div className="p-4">
                               <label className="block text-sm font-medium text-gray-600 mb-2">
-                                Commentaire du formateur
+                                Commentaire {isFormateur ? "du formateur" : ""}
                               </label>
                               {isFormateur ? (
                                 <textarea
                                   className="w-full p-3 rounded-md border-gray-300 focus:ring-2 focus:ring-teal-500 bg-gray-50"
                                   rows={4}
                                   value={localFeedbacks[`${section.id}-${dialogueIndex}`] || ''}
-                                  onChange={(e) => handleFeedbackChange(section.id, dialogueIndex, e.target.value)}
+                                  onChange={(e) => handleFeedbackChange(`${section.id}-${dialogueIndex}`, e.target.value)}
                                   placeholder="Ajoutez votre commentaire ici..."
                                 />
-                              ) : (
+                              ) : dialogue.type === 'commercial' ? (
                                 <div className="w-full p-3 rounded-md bg-gray-50 border border-gray-200 min-h-[96px]">
                                   {localFeedbacks[`${section.id}-${dialogueIndex}`] || 'Pas encore de commentaire'}
                                 </div>
-                              )}
+                              ) : null}
                             </div>
                           </div>
                         </div>

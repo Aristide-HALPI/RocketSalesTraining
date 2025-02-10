@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { collection, addDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { ExerciseStatus } from '../types/exercises';
 
 const Solution: FC = () => {
   const navigate = useNavigate();
@@ -28,7 +29,7 @@ const Solution: FC = () => {
         description: formData.description,
         solution: formData.companyName,
         type: 'solution',
-        status: 'completed',
+        status: ExerciseStatus.Evaluated,
         createdAt: new Date().toISOString(),
         createdBy: currentUser.uid,
         lastUpdated: new Date().toISOString()

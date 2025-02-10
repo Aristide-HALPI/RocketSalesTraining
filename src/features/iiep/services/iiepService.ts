@@ -1,7 +1,8 @@
 import { db } from '../../../lib/firebase';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { ExerciseStatus } from '../../../types/database';
 import { AIService } from '../../../services/AIService';
+import { AIEvaluationResponse } from '../../../api/ai/routes/evaluation';
 
 export interface IIEPDialogue {
   text: string;
@@ -32,6 +33,16 @@ export interface IIEPExercise {
     evaluatedAt: string;
     evaluatedBy: string;
   };
+}
+
+export interface IIEPService {
+  getExercise(userId: string): Promise<IIEPExercise | null>;
+  createExercise(userId: string): Promise<IIEPExercise>;
+  updateExercise(userId: string, exercise: Partial<IIEPExercise>): Promise<void>;
+  submitExercise(userId: string, exercise: IIEPExercise): Promise<void>;
+  evaluateExercise(userId: string, exercise: IIEPExercise, evaluatorId?: string): Promise<void>;
+  subscribeToExercise(userId: string, callback: (exercise: IIEPExercise) => void): () => void;
+  evaluateWithAI(userId: string): Promise<void>;
 }
 
 export const getInitialIIEPExercise = (): Partial<IIEPExercise> => ({
@@ -92,7 +103,7 @@ export const getInitialIIEPExercise = (): Partial<IIEPExercise> => ({
   ]
 });
 
-class IIEPService {
+class IIEPServiceImpl implements IIEPService {
   private getExercisePath(userId: string) {
     return `users/${userId}/exercises/iiep`;
   }
@@ -129,17 +140,6 @@ class IIEPService {
   async updateExercise(userId: string, exercise: Partial<IIEPExercise>): Promise<void> {
     try {
       const exercisePath = this.getExercisePath(userId);
-      
-      // Vérifier si l'exercice est vide
-      const isExerciseEmpty = (exercise.sections || []).every(section =>
-        section.dialogues.every(dialogue => !dialogue.text || dialogue.text.trim() === '')
-      );
-
-      // Mettre à jour le statut en fonction du contenu
-      if (exercise.status !== 'submitted' && exercise.status !== 'evaluated') {
-        exercise.status = isExerciseEmpty ? 'not_started' : 'in_progress';
-      }
-
       await updateDoc(doc(db, exercisePath), exercise);
     } catch (error) {
       console.error('Error updating IIEP exercise:', error);
@@ -149,59 +149,13 @@ class IIEPService {
 
   async submitExercise(userId: string, exercise: IIEPExercise): Promise<void> {
     try {
-      const exercisePath = this.getExercisePath(userId);
-      
-      // Calculer le score total (max 2 points par réponse du commercial)
-      let totalRawScore = 0;
-      let maxRawScore = 0;
-      
-      exercise.sections.forEach(section => {
-        section.dialogues.forEach(dialogue => {
-          if (dialogue.type === 'commercial') {
-            const score = dialogue.score || 0;
-            totalRawScore += score;
-            maxRawScore += 2; // Max 2 points par réponse
-          }
-        });
-      });
-
-      // Convertir le score sur 30 points (règle de 3)
-      const finalScore = Math.round((totalRawScore * 30) / maxRawScore);
-      
-      const updatedExercise = {
+      await this.updateExercise(userId, {
         ...exercise,
         status: 'submitted',
-        submittedAt: new Date().toISOString(),
-        totalScore: finalScore,
-        maxScore: 30
-      };
-
-      await setDoc(doc(db, exercisePath), updatedExercise);
-    } catch (error) {
-      console.error('Error submitting exercise:', error);
-      throw error;
-    }
-  }
-
-  async evaluateWithAI(userId: string): Promise<void> {
-    try {
-      const exerciseDoc = await getDoc(doc(db, this.getExercisePath(userId)));
-      if (!exerciseDoc.exists()) {
-        throw new Error('Exercise not found');
-      }
-
-      const exercise = exerciseDoc.data() as IIEPExercise;
-      
-      // Appeler le service AI pour l'évaluation
-      const evaluatedExercise = await AIService.evaluateIIEPExercise(exercise);
-      
-      // Mettre à jour l'exercice avec les résultats de l'IA
-      await this.updateExercise(userId, {
-        ...evaluatedExercise,
-        updatedAt: new Date().toISOString()
+        submittedAt: new Date().toISOString()
       });
     } catch (error) {
-      console.error('Error evaluating exercise with AI:', error);
+      console.error('Error submitting exercise:', error);
       throw error;
     }
   }
@@ -222,6 +176,197 @@ class IIEPService {
       throw error;
     }
   }
+
+  subscribeToExercise(userId: string, callback: (exercise: IIEPExercise) => void): () => void {
+    if (!userId) return () => {};
+
+    const docRef = doc(db, this.getExercisePath(userId));
+    return onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        callback(docSnap.data() as IIEPExercise);
+      }
+    });
+  }
+
+  async evaluateWithAI(userId: string): Promise<void> {
+    try {
+      const exerciseDoc = await getDoc(doc(db, this.getExercisePath(userId)));
+      if (!exerciseDoc.exists()) {
+        throw new Error('Exercise not found');
+      }
+
+      const exercise = exerciseDoc.data() as IIEPExercise;
+      
+      // Formater le contenu pour l'évaluation
+      const formattedContent = {
+        type: 'iiep',
+        exercise: {
+          sections: exercise.sections.map(section => ({
+            id: section.id,
+            title: section.title,
+            dialogues: section.dialogues
+          }))
+        }
+      };
+
+      // Utiliser evaluateExercise
+      const evaluation: AIEvaluationResponse = await AIService.evaluateExercise({
+        type: 'iiep',
+        content: JSON.stringify(formattedContent),
+        organizationId: '01930c32-cb5d-78be-be04-a36683d5fe99', // ID par défaut
+        botId: import.meta.env.VITE_SIIEP_BOT_ID // Utiliser le même bot que SIIEP
+      });
+
+      console.log('Raw evaluation object:', evaluation);
+      console.log('Raw evaluation JSON:', JSON.stringify(evaluation));
+
+      // Extraire les réponses du JSON si nécessaire
+      let responses = evaluation.responses;
+      let finalScore = evaluation.score || 0;
+
+      if (typeof evaluation === 'string') {
+        try {
+          const parsed = JSON.parse(evaluation);
+          responses = parsed.responses;
+          finalScore = parsed.score || 0;
+          console.log('Parsed from string:', { responses, finalScore });
+        } catch (e) {
+          console.error('Error parsing evaluation:', e);
+          responses = [];
+        }
+      } else if (evaluation.evaluation) {
+        // Si le score n'est pas directement dans l'objet, essayer de le trouver dans evaluation.evaluation
+        responses = evaluation.evaluation.responses;
+        if (!finalScore && evaluation.evaluation.score) {
+          finalScore = evaluation.evaluation.score;
+        }
+        console.log('Score from evaluation:', finalScore);
+      }
+
+      // Si responses est toujours undefined, essayer d'extraire de evaluation.evaluation
+      if (!responses && evaluation.evaluation?.responses) {
+        responses = evaluation.evaluation.responses;
+      }
+
+      // S'assurer que responses est un tableau
+      responses = responses || [];
+      
+      console.log('Final responses to process:', responses);
+      console.log('Final score to use:', finalScore);
+
+      // Transformer les réponses de l'IA
+      const transformedResponses = responses.map(r => {
+        const transformed = {
+          objection: parseInt(r.objection?.toString() || r.characteristic?.toString() || '0'),
+          category: (r.stage || r.section || '')
+            .toLowerCase()
+            .replace(/[()'']/g, '')
+            .replace('sinterroger', 'interroger'),
+          score: r.score || 0,
+          maxPoints: r.maxPoints || 4,
+          comment: r.comment || ''
+        };
+        console.log('Transformed response:', transformed);
+        return transformed;
+      });
+
+      console.log('All transformed responses:', transformedResponses);
+
+      // Si le score final est toujours 0, essayons de le calculer
+      if (finalScore === 0) {
+        const totalPoints = transformedResponses.reduce((sum, r) => sum + r.score, 0);
+        const maxPoints = transformedResponses.reduce((sum, r) => sum + r.maxPoints, 0) || 1;
+        finalScore = Math.round((totalPoints / maxPoints) * 30);
+        console.log('Calculated fallback score:', { totalPoints, maxPoints, finalScore });
+      }
+
+      // Mettre à jour l'exercice avec les scores et commentaires
+      const updatedExercise = {
+        ...exercise,
+        status: 'evaluated' as const,
+        totalScore: finalScore,
+        maxScore: 30,
+        evaluation: {
+          score: finalScore,
+          comment: evaluation.feedback || '',
+          evaluatedAt: new Date().toISOString(),
+          evaluatedBy: 'AI'
+        }
+      };
+
+      // Mettre à jour chaque section et dialogue
+      updatedExercise.sections = exercise.sections.map(section => {
+        const sectionId = parseInt(section.id);
+        console.log('\n=== Processing section ===', { 
+          sectionId, 
+          title: section.title,
+          dialoguesCount: section.dialogues.length 
+        });
+        
+        // Mettre à jour les dialogues
+        const updatedDialogues = section.dialogues.map((dialogue, index) => {
+          // Ne pas noter les dialogues du client
+          if (dialogue.type === 'client') {
+            console.log('Skipping client dialogue:', { index, category: dialogue.category });
+            return dialogue;
+          }
+
+          // Trouver la réponse de l'IA pour cette objection et catégorie
+          console.log('\nLooking for response:', { 
+            sectionId, 
+            dialogueCategory: dialogue.category,
+            dialogueType: dialogue.type,
+            dialogueIndex: index
+          });
+
+          const matchingResponses = transformedResponses.filter(
+            r => r.objection === sectionId && r.category === dialogue.category
+          );
+
+          console.log('Found matching responses:', matchingResponses);
+
+          const response = matchingResponses[0];
+
+          if (!response) {
+            console.log('No response found for dialogue');
+            return dialogue;
+          }
+
+          const updatedDialogue = {
+            ...dialogue,
+            score: response.score,
+            feedback: response.comment
+          };
+          
+          console.log('Updated dialogue:', {
+            category: updatedDialogue.category,
+            type: updatedDialogue.type,
+            score: updatedDialogue.score,
+            feedback: updatedDialogue.feedback
+          });
+          
+          return updatedDialogue;
+        });
+
+        return {
+          ...section,
+          dialogues: updatedDialogues
+        };
+      });
+
+      console.log('Final exercise state:', {
+        totalScore: updatedExercise.totalScore,
+        status: updatedExercise.status,
+        evaluation: updatedExercise.evaluation
+      });
+
+      // Mettre à jour l'exercice en une seule opération
+      await setDoc(doc(db, this.getExercisePath(userId)), updatedExercise);
+    } catch (error) {
+      console.error('Error evaluating exercise with AI:', error);
+      throw error;
+    }
+  }
 }
 
-export const iiepService = new IIEPService();
+export const iiepService: IIEPService = new IIEPServiceImpl();

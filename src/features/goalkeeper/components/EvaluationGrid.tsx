@@ -1,150 +1,91 @@
 import React from 'react';
-import { EvaluationCriterion, GOALKEEPER_EVALUATION_CRITERIA } from '../types';
+import { EvaluationCriterion } from '../types';
 
 interface EvaluationGridProps {
   isFormateur: boolean;
-  evaluation?: {
+  evaluation: {
     criteria: EvaluationCriterion[];
     totalScore: number;
-    evaluatedBy?: string;
-    evaluatedAt?: string;
   };
-  onUpdateScore?: (criterionId: string, subCriterionId: string, score: number) => void;
-  onUpdateFeedback?: (criterionId: string, subCriterionId: string, feedback: string) => void;
+  onUpdateScore: (criterionId: string, subCriterionId: string, score: number) => void;
+  onUpdateFeedback: (criterionId: string, subCriterionId: string, feedback: string) => void;
 }
 
 export const EvaluationGrid: React.FC<EvaluationGridProps> = ({
   isFormateur,
   evaluation,
   onUpdateScore,
-  onUpdateFeedback,
+  onUpdateFeedback
 }) => {
-  const defaultCriteria = React.useMemo(() => {
-    return GOALKEEPER_EVALUATION_CRITERIA.map(criterion => ({
-      ...criterion,
-      subCriteria: criterion.subCriteria.map(sub => ({
-        ...sub,
-        score: 0,
-        feedback: ''
-      }))
-    }));
-  }, []);
+  // Calculer le score total et le score maximum
+  const totalScore = evaluation.criteria.reduce((sum, criterion) => 
+    sum + criterion.subCriteria.reduce((subSum, sub) => subSum + sub.score, 0), 0);
+  
+  const maxScore = evaluation.criteria.reduce((sum, criterion) => 
+    sum + criterion.subCriteria.reduce((subSum, sub) => subSum + sub.maxPoints, 0), 0);
 
-  const criteria = evaluation?.criteria || defaultCriteria;
-
-  const getCriterionScore = (criterion: EvaluationCriterion) => {
-    return criterion.subCriteria?.reduce((sum, sub) => sum + (sub.score || 0), 0) || 0;
-  };
-
-  const totalMaxPoints = GOALKEEPER_EVALUATION_CRITERIA.reduce((sum, criterion) => sum + criterion.maxPoints, 0);
-  const totalScore = evaluation?.totalScore || 0;
-  const scoreOn20 = Math.round((totalScore / totalMaxPoints) * 20 * 10) / 10; // Conversion sur 20 avec 1 décimale
+  // Convertir en note sur 20
+  const scoreOn20 = Math.round((totalScore / maxScore) * 20 * 10) / 10;
 
   return (
-    <div className="bg-white rounded-lg shadow-sm mt-8">
-      <div className="px-8 py-4 border-b border-gray-200">
-        <div className="flex justify-between items-center">
-          <h2 className="text-xl font-semibold text-gray-800">Grille d'évaluation</h2>
-          <div className="text-right">
-            <div className="text-sm text-gray-600">
-              {evaluation?.evaluatedBy ? (
-                <>
-                  <span>Évalué par {evaluation.evaluatedBy}</span>
-                  <br />
-                  <span>le {new Date(evaluation.evaluatedAt!).toLocaleDateString()}</span>
-                </>
-              ) : (
-                <span>En attente d'évaluation</span>
-              )}
-            </div>
-            <div className="text-lg font-semibold mt-1">
-              Score total : {totalScore} / {totalMaxPoints} points
-            </div>
-            <div className="text-sm text-gray-600">
-              {scoreOn20} / 20
-            </div>
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-semibold text-gray-800">Grille d'évaluation</h2>
+        <div className="text-right">
+          <div className="text-lg font-semibold text-gray-800">
+            Score total : {totalScore} / {maxScore} points
+          </div>
+          <div className="text-sm text-gray-600">
+            {scoreOn20} / 20
           </div>
         </div>
       </div>
 
-      <div className="divide-y divide-gray-200">
-        {criteria.map((criterion) => {
-          const criterionScore = getCriterionScore(criterion);
-          return (
-            <div key={criterion.id} className="px-8 py-6">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-lg font-medium text-gray-800">{criterion.name}</h3>
-                </div>
-                <div className="text-right">
-                  <span className="text-sm font-medium text-gray-600">
-                    {criterionScore} / {criterion.maxPoints} points
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                {criterion.subCriteria?.map((subCriterion) => (
-                  <div key={subCriterion.id} className="flex items-start gap-4 bg-gray-50 p-4 rounded">
-                    <div className="flex-grow">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-gray-700">
-                          {subCriterion.name}
-                        </span>
-                        <span className="text-sm text-gray-600">
-                          {subCriterion.maxPoints} points
-                        </span>
-                      </div>
-                      {isFormateur && (
-                        <textarea
-                          value={subCriterion.feedback || ''}
-                          onChange={(e) => onUpdateFeedback?.(criterion.id, subCriterion.id, e.target.value)}
-                          placeholder="Ajouter un commentaire..."
-                          className="mt-2 w-full p-2 border border-gray-300 rounded text-sm"
-                          rows={2}
-                        />
-                      )}
-                      {!isFormateur && subCriterion.feedback && (
-                        <p className="text-sm text-gray-600 mt-2 italic">
-                          {subCriterion.feedback}
-                        </p>
-                      )}
-                    </div>
-                    {isFormateur && (
-                      <div className="flex-none">
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          min="0"
-                          max={subCriterion.maxPoints}
-                          value={subCriterion.score !== undefined ? subCriterion.score : ''}
-                          onChange={(e) => {
-                            const value = e.target.value.replace(/[^0-9]/g, '');
-                            if (value === '') {
-                              onUpdateScore?.(criterion.id, subCriterion.id, 0);
-                              return;
-                            }
-                            const score = Math.min(Number(value), subCriterion.maxPoints);
-                            if (!isNaN(score)) {
-                              onUpdateScore?.(criterion.id, subCriterion.id, score);
-                            }
-                          }}
-                          placeholder="0"
-                          className="w-16 p-2 border border-gray-300 rounded text-center"
-                        />
-                        <div className="text-xs text-gray-500 text-center mt-1">
-                          / {subCriterion.maxPoints}
-                        </div>
-                      </div>
+      {evaluation.criteria.map((criterion) => (
+        <div key={criterion.id} className="mb-8">
+          <h3 className="text-lg font-medium text-gray-700 mb-4">{criterion.name}</h3>
+          <div className="space-y-4">
+            {criterion.subCriteria.map((sub) => (
+              <div key={sub.id} className="flex flex-col space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm text-gray-600">{sub.name}</label>
+                  <div className="flex items-center gap-2">
+                    {isFormateur ? (
+                      <select
+                        value={sub.score}
+                        onChange={(e) => onUpdateScore(criterion.id, sub.id, Number(e.target.value))}
+                        className="border rounded px-2 py-1 text-sm"
+                      >
+                        {Array.from({ length: sub.maxPoints + 1 }, (_, i) => (
+                          <option key={i} value={i}>
+                            {i} / {sub.maxPoints}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-sm font-medium">
+                        {sub.score} / {sub.maxPoints}
+                      </span>
                     )}
                   </div>
-                ))}
+                </div>
+                {isFormateur && (
+                  <textarea
+                    value={sub.feedback}
+                    onChange={(e) => onUpdateFeedback(criterion.id, sub.id, e.target.value)}
+                    placeholder="Ajouter un commentaire..."
+                    className="w-full p-2 text-sm border rounded"
+                    rows={2}
+                  />
+                )}
+                {!isFormateur && sub.feedback && (
+                  <p className="text-sm text-gray-600 italic">{sub.feedback}</p>
+                )}
               </div>
-            </div>
-          );
-        })}
-      </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 };

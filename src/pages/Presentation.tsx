@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ExerciseTemplate } from '../components/ExerciseTemplate';
-import { presentationService, type PresentationExercise } from '../features/presentation/services/presentationService';
+import { presentationService, type PresentationExercise, ExerciseStatus } from '../features/presentation/services/presentationService';
 import { toast } from 'react-hot-toast';
 
 export default function Presentation() {
@@ -19,8 +19,8 @@ export default function Presentation() {
 
   const isFormateur = userProfile?.role === 'trainer' || userProfile?.role === 'admin';
   const isStudent = !!studentIdParam;
-  const canEdit = !isStudent && currentExercise?.status !== 'evaluated';
-  const canEvaluate = isFormateur && currentExercise?.status !== 'evaluated';
+  const canEdit = !isStudent && currentExercise?.status !== ExerciseStatus.Evaluated;
+  const canEvaluate = isFormateur && currentExercise?.status !== ExerciseStatus.NotStarted && currentExercise?.status !== ExerciseStatus.Published;
   const targetUserId = studentIdParam || currentUser?.uid || '';
 
   // Vérifier si l'utilisateur est autorisé
@@ -59,7 +59,7 @@ export default function Presentation() {
     try {
       await presentationService.updateExercise(targetUserId, {
         content,
-        status: 'in_progress'
+        status: ExerciseStatus.InProgress
       });
       toast.success('Sauvegarde réussie');
     } catch (error) {
@@ -96,7 +96,7 @@ export default function Presentation() {
     if (!isFormateur || !targetUserId) return;
 
     try {
-      await presentationService.evaluateWithAI(targetUserId);
+      await presentationService.evaluateWithAI(targetUserId, userProfile?.organizationId || '');
       toast.success('Évaluation IA effectuée');
     } catch (error) {
       console.error('Error during AI evaluation:', error);
@@ -111,7 +111,8 @@ export default function Presentation() {
   return (
     <ExerciseTemplate
       title="Présentation de votre société"
-      description="Techniques pour présenter efficacement votre entreprise"
+      description="Présentez votre société en détail."
+      maxScore={20}
     >
       <div className="space-y-6">
         {/* Score et Statut */}
@@ -128,10 +129,10 @@ export default function Presentation() {
           <div className="bg-blue-100 rounded-lg p-4">
             <h3 className="text-lg font-semibold text-blue-900">Statut de l'exercice</h3>
             <div className="text-xl font-semibold text-blue-700">
-              {currentExercise?.status === 'not_started' && 'Non commencé'}
-              {currentExercise?.status === 'in_progress' && 'En cours'}
-              {currentExercise?.status === 'submitted' && 'Soumis'}
-              {currentExercise?.status === 'evaluated' && 'Évalué'}
+              {currentExercise?.status === ExerciseStatus.NotStarted && 'Non commencé'}
+              {currentExercise?.status === ExerciseStatus.InProgress && 'En cours'}
+              {currentExercise?.status === ExerciseStatus.Submitted && 'Soumis'}
+              {currentExercise?.status === ExerciseStatus.Evaluated && 'Évalué'}
             </div>
           </div>
         </div>
@@ -183,7 +184,7 @@ export default function Presentation() {
             <div className="flex space-x-4">
               <button
                 onClick={handleAIEvaluation}
-                disabled={!isFormateur || currentExercise?.status === 'evaluated'}
+                disabled={!isFormateur || currentExercise?.status === ExerciseStatus.Evaluated}
                 className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2 rounded-md hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50"
               >
                 Correction IA
@@ -200,7 +201,7 @@ export default function Presentation() {
         )}
 
         {/* Affichage du commentaire pour l'étudiant */}
-        {!isFormateur && currentExercise?.trainerComment && currentExercise?.status === 'evaluated' && (
+        {!isFormateur && currentExercise?.trainerComment && currentExercise?.status === ExerciseStatus.Evaluated && (
           <div className="bg-gray-100 rounded-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Commentaire du formateur</h3>
             <div className="text-gray-700 whitespace-pre-wrap">
@@ -210,11 +211,11 @@ export default function Presentation() {
         )}
 
         {/* Bouton de soumission pour l'étudiant */}
-        {!isFormateur && currentExercise?.status !== 'evaluated' && (
+        {!isFormateur && currentExercise?.status !== ExerciseStatus.Evaluated && (
           <div className="flex justify-end">
             <button
               onClick={handleSubmit}
-              disabled={currentExercise?.status === 'submitted'}
+              disabled={currentExercise?.status === ExerciseStatus.Submitted}
               className="bg-purple-600 text-white px-6 py-2 rounded-md hover:bg-purple-700 disabled:opacity-50"
             >
               Soumettre

@@ -6,7 +6,15 @@ interface ScoreDisplayProps {
 }
 
 export const ScoreDisplay: React.FC<ScoreDisplayProps> = ({ totalScore, maxScore }) => {
+  // Arrondir à une décimale
   const scoreOn20 = Math.round((totalScore / maxScore) * 20 * 10) / 10;
+  
+  console.log('Score calculation:', {
+    totalScore,
+    maxScore,
+    scoreOn20,
+    calculation: `(${totalScore} / ${maxScore}) * 20 = ${scoreOn20}`
+  });
 
   return (
     <div className="bg-purple-100 p-4 rounded-lg">

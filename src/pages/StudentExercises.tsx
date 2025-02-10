@@ -4,6 +4,7 @@ import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Clock, XCircle } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { ExerciseStatus } from '../types/exercises';
 
 interface User {
   id: string;
@@ -16,7 +17,7 @@ interface Exercise {
   id: string;
   title: string;
   description: string;
-  status: 'not_started' | 'in_progress' | 'completed' | 'pending_validation' | 'evaluated' | 'submitted';
+  status: ExerciseStatus;
   score?: number;
   lastUpdated?: string;
   type?: 'eisenhower' | 'welcome' | 'goalkeeper' | 'sections' | 'solution' | 'rdv_decideur' | 'iiep' | 'presentation' | 'eombus' | 'cles' | 'cdab' | 'outil_cdab' | 'objections' | 'points_bonus' | 'points_role_final' | 'certification' | 'company';
@@ -34,7 +35,7 @@ const AVAILABLE_EXERCISES = [
     title: 'Bienvenue',
     description: 'Message de bienvenue et instructions générales',
     type: 'welcome' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isViewOnly: true,
     duration: '5 min'
   },
@@ -43,7 +44,7 @@ const AVAILABLE_EXERCISES = [
     title: 'Votre Solution',
     description: 'Décrivez votre solution pour les exercices',
     type: 'solution' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: false,
     duration: '15 min'
   },
@@ -52,7 +53,7 @@ const AVAILABLE_EXERCISES = [
     title: 'Matrice d\'Eisenhower',
     description: 'Priorisez vos tâches avec la matrice d\'Eisenhower',
     type: 'eisenhower' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: true,
     duration: '20 min'
   },
@@ -61,7 +62,7 @@ const AVAILABLE_EXERCISES = [
     title: 'Passer le Goalkeeper',
     description: 'Exercice de vente avec la méthode Goalkeeper',
     type: 'goalkeeper' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: false,
     duration: '25 min'
   },
@@ -70,7 +71,7 @@ const AVAILABLE_EXERCISES = [
     title: 'Les 3 sections',
     description: 'Exercice sur les motivateurs, caractéristiques et concepts de vente',
     type: 'sections' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: false,
     duration: '30 min'
   },
@@ -79,7 +80,7 @@ const AVAILABLE_EXERCISES = [
     title: 'RDV avec le Décideur',
     description: 'Simulation d\'un rendez-vous avec un décideur',
     type: 'rdv_decideur' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: false,
     duration: '35 min'
   },
@@ -88,7 +89,7 @@ const AVAILABLE_EXERCISES = [
     title: '(s\')IIEP',
     description: 'Méthode IIEP pour structurer votre approche commerciale',
     type: 'iiep' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: false,
     duration: '40 min'
   },
@@ -97,7 +98,7 @@ const AVAILABLE_EXERCISES = [
     title: 'Présentation de votre société',
     description: 'Techniques pour présenter efficacement votre entreprise',
     type: 'presentation' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: false,
     duration: '35 min',
     path: '/presentation'
@@ -115,7 +116,7 @@ const AVAILABLE_EXERCISES = [
     title: 'Les 3 Clés',
     description: 'Points clés de la négociation',
     type: 'cles' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: false,
     duration: '90 min'
   },
@@ -124,7 +125,7 @@ const AVAILABLE_EXERCISES = [
     title: 'CDAB',
     description: 'Apprenez à structurer votre discours avec la méthode CDAB',
     type: 'cdab' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: false,
     duration: '25 min'
   },
@@ -133,7 +134,7 @@ const AVAILABLE_EXERCISES = [
     title: 'OUTIL CDAB',
     description: 'Mettez en pratique la méthode CDAB sur différents scénarios',
     type: 'outil_cdab' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: false,
     duration: '35 min'
   },
@@ -142,7 +143,7 @@ const AVAILABLE_EXERCISES = [
     title: 'Objections',
     description: 'Gestion des objections clients',
     type: 'objections' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: false,
     duration: '90 min'
   },
@@ -151,7 +152,7 @@ const AVAILABLE_EXERCISES = [
     title: 'Points Bonus',
     description: 'Techniques avancées et cas spéciaux',
     type: 'points_bonus' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: false,
     duration: '60 min'
   },
@@ -160,7 +161,7 @@ const AVAILABLE_EXERCISES = [
     title: 'Points - Jeu de Rôle final',
     description: 'Mise en situation finale pour valider les acquis',
     type: 'points_role_final' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: false,
     duration: '60 min'
   },
@@ -169,7 +170,7 @@ const AVAILABLE_EXERCISES = [
     title: 'Certification',
     description: 'Bilan des résultats et certification finale',
     type: 'certification' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: false,
     duration: '10 min'
   },
@@ -178,39 +179,36 @@ const AVAILABLE_EXERCISES = [
     title: 'Company',
     description: 'Exercice Company',
     type: 'company' as const,
-    status: 'not_started' as const,
+    status: ExerciseStatus.NotStarted as const,
     isAutoCorrected: false,
     duration: '10 min'
   }
 ] as Exercise[];
 
-const getStatusColor = (status: Exercise['status']) => {
+const getStatusColor = (status: ExerciseStatus) => {
   switch (status) {
-    case 'completed':
-    case 'evaluated':
+    case ExerciseStatus.NotStarted:
+      return 'text-gray-600';
+    case ExerciseStatus.Evaluated:
       return 'text-green-600';
-    case 'in_progress':
+    case ExerciseStatus.InProgress:
       return 'text-blue-600';
-    case 'pending_validation':
+    case ExerciseStatus.Submitted:
       return 'text-orange-600';
     default:
       return 'text-gray-600';
   }
 };
 
-const getStatusText = (status: Exercise['status']) => {
+const getStatusText = (status: ExerciseStatus) => {
   switch (status) {
-    case 'not_started':
+    case ExerciseStatus.NotStarted:
       return 'À débuter';
-    case 'in_progress':
+    case ExerciseStatus.InProgress:
       return 'En cours';
-    case 'submitted':
+    case ExerciseStatus.Submitted:
       return 'En attente de correction';
-    case 'evaluated':
-      return 'Corrigé';
-    case 'pending_validation':
-      return 'En attente de validation';
-    case 'completed':
+    case ExerciseStatus.Evaluated:
       return 'Terminé';
     default:
       return 'À débuter';
@@ -258,11 +256,11 @@ export default function StudentExercises() {
           const userExercise = userExercises.get(exercise.id);
           return {
             ...exercise,
-            status: userExercise?.status || 'not_started',
+            status: userExercise?.status || ExerciseStatus.NotStarted,
             score: userExercise?.score,
             lastUpdated: userExercise?.lastUpdated,
-            statusColor: getStatusColor(userExercise?.status || 'not_started'),
-            statusText: getStatusText(userExercise?.status || 'not_started')
+            statusColor: getStatusColor(userExercise?.status || ExerciseStatus.NotStarted),
+            statusText: getStatusText(userExercise?.status || ExerciseStatus.NotStarted)
           };
         });
 
@@ -298,7 +296,7 @@ export default function StudentExercises() {
         navigate(`/solution?userId=${userId}`);
         break;
       case 'rdv_decideur':
-        navigate(`/meeting?userId=${userId}`);
+        navigate(`/rdv-decideur?userId=${userId}`);
         break;
       case 'iiep':
         navigate(`/iiep?userId=${userId}`);
@@ -316,7 +314,7 @@ export default function StudentExercises() {
         navigate(`/cdab?userId=${userId}`);
         break;
       case 'outil_cdab':
-        navigate(`/outil-cdab?userId=${userId}`);
+        navigate(`/cdab-practice?userId=${userId}`);
         break;
       case 'objections':
         navigate(`/objections?userId=${userId}`);

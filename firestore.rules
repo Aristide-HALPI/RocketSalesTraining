@@ -19,6 +19,12 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'formateur';
     }
 
+    // Règles pour les paramètres système
+    match /settings/system {
+      allow read: if true; // Permettre la lecture des paramètres système à tous
+      allow write: if isAdmin(); // Seuls les admins peuvent modifier les paramètres
+    }
+
     // Règles pour la collection users
     match /users/{userId} {
       allow read: if isAuthenticated();

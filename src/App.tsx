@@ -88,15 +88,11 @@ function App() {
                     <Route path="/rdv-decideur" element={<RdvDecideur />} />
                     <Route path="/meeting" element={<Meeting />} />
                     <Route path="/iiep" element={<IIEP />} />
-                    <Route path="/presentation" element={
-                      <PrivateRoute>
-                        <Presentation />
-                      </PrivateRoute>
-                    } />
+                    <Route path="/presentation" element={<Presentation />} />
                     <Route path="/eombus-pafi" element={<EombusPafi />} />
                     <Route path="/cles" element={<Cles />} />
                     <Route path="/cdab" element={<Cdab />} />
-                    <Route path="/outils-cdab" element={
+                    <Route path="/cdab-practice" element={
                       <PrivateRoute>
                         <OutilsCdab />
                       </PrivateRoute>

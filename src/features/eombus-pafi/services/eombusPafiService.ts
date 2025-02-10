@@ -1,7 +1,7 @@
 import { db } from '../../../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
-import { AIEvaluationResponse } from '../../../services/AIService';
 import { AIService } from '@/services/AIService';
+import { AIEvaluationResponse } from '../../../api/ai/routes/evaluation';
 
 export type QuestionType = 'ouverte' | 'ouverte_importance' | 'fermee' | 'fermee_importance';
 export type Score = 0 | 1;
@@ -32,18 +32,29 @@ export interface EombusPafiExercise {
   id: string;
   userId: string;
   type: 'eombus';
-  status: 'not_started' | 'in_progress' | 'submitted' | 'evaluated';
   sections: Section[];
-  totalScore?: number;
-  maxScore: number;
+  status: 'not_started' | 'in_progress' | 'submitted' | 'evaluated' | 'published';
   createdAt: string;
   updatedAt: string;
   lastUpdated?: string;
-  aiEvaluation?: AIEvaluationResponse;
+  aiEvaluation?: any;
   evaluatedAt?: string;
   evaluatedBy?: string;
   submittedAt?: string;
+  publishedAt?: string;
   trainerFinalComment?: string;
+  totalScore?: number;
+  maxScore?: number;
+}
+
+interface EombusEvaluationResponse extends AIEvaluationResponse {
+  responses: Array<{
+    characteristic: number;
+    section: string;
+    score: number;
+    maxPoints: number;
+    comment: string;
+  }>;
 }
 
 export const INITIAL_SECTIONS: Section[] = [
@@ -65,6 +76,17 @@ export const INITIAL_SECTIONS: Section[] = [
       ...Array(5).fill(null).map(() => ({ type: 'ouverte' as const, text: '' })),
       ...Array(2).fill(null).map(() => ({ type: 'ouverte_importance' as const, text: '' })),
       ...Array(2).fill(null).map(() => ({ type: 'fermee' as const, text: '' }))
+    ]
+  },
+  {
+    id: 'moyen',
+    title: 'Moyen',
+    description: 'Posez 3 questions ouvertes + 2 questions fermées (en variant au choix, avec des questions concerant une situation passée, actuelle ou future) + posez 1 question ouverte d\'importance + 1 question fermée d\'importance.',
+    questions: [
+      ...Array(3).fill(null).map(() => ({ type: 'ouverte' as const, text: '' })),
+      { type: 'ouverte_importance' as const, text: '' },
+      ...Array(2).fill(null).map(() => ({ type: 'fermee' as const, text: '' })),
+      { type: 'fermee_importance' as const, text: '' }
     ]
   },
   {
@@ -106,21 +128,37 @@ function cleanUndefined(obj: any): any {
   return JSON.parse(JSON.stringify(obj));
 }
 
-function calculateFinalScore(sections: Section[]): number {
-  const totalPoints = sections.reduce((total, section) => {
-    return total + section.questions.reduce((sectionTotal, question) => {
-      return sectionTotal + (question.score?.points || 0);
-    }, 0);
-  }, 0);
-
-  return totalPoints;
+function convertScoresToNumbers(exercise: any): EombusPafiExercise {
+  return {
+    ...exercise,
+    totalScore: exercise.totalScore ? Number(exercise.totalScore) : undefined,
+    maxScore: exercise.maxScore ? Number(exercise.maxScore) : undefined
+  };
 }
 
-function isExerciseEmpty(sections: Section[]): boolean {
-  return sections.every(section =>
-    section.questions.every(question => !question.text.trim())
-  );
-}
+// Fonction pour calculer le score total
+export const calculateTotalScore = (sections: Section[]): { totalScore: number; maxScore: number; finalScore: number } => {
+  let totalScore = 0;
+  const MAX_SCORE = 190; // Score maximum fixe : total des points maximum possibles
+
+  // Calculer le score total en additionnant tous les points
+  sections.forEach(section => {
+    section.questions.forEach(question => {
+      if (question.score) {
+        totalScore += question.score.points;
+      }
+    });
+  });
+
+  // Calculer le score final sur 100 en utilisant une règle de trois
+  const finalScore = Math.round((totalScore / MAX_SCORE) * 100);
+
+  return {
+    totalScore,
+    maxScore: MAX_SCORE,
+    finalScore
+  };
+};
 
 export const eombusPafiService = {
   async getExercise(userId: string): Promise<EombusPafiExercise> {
@@ -143,18 +181,16 @@ export const eombusPafiService = {
       return newExercise;
     }
 
-    return exerciseDoc.data() as EombusPafiExercise;
+    return convertScoresToNumbers(exerciseDoc.data()) as EombusPafiExercise;
   },
 
   subscribeToExercise(userId: string, callback: (exercise: EombusPafiExercise) => void) {
     const exerciseRef = doc(db, `users/${userId}/exercises/eombus`);
-    return onSnapshot(exerciseRef, async (doc) => {
-      if (!doc.exists()) {
-        const exercise = await this.getExercise(userId);
-        callback(exercise);
-        return;
+
+    return onSnapshot(exerciseRef, (doc) => {
+      if (doc.exists()) {
+        callback(convertScoresToNumbers(doc.data()));
       }
-      callback(doc.data() as EombusPafiExercise);
     });
   },
 
@@ -168,8 +204,13 @@ export const eombusPafiService = {
 
   async submitExercise(userId: string) {
     const exercise = await this.getExercise(userId);
-    
-    if (isExerciseEmpty(exercise.sections)) {
+
+    // Vérifier si l'exercice est vide
+    const isExerciseEmpty = exercise.sections.every(section =>
+      section.questions.every(question => !question.text.trim())
+    );
+
+    if (isExerciseEmpty) {
       throw new Error('L\'exercice ne peut pas être soumis car il est vide');
     }
 
@@ -179,54 +220,140 @@ export const eombusPafiService = {
     });
   },
 
-  async evaluateExercise(userId: string, sections: EombusPafiExercise['sections'], evaluatorId: string) {
-    const totalScore = calculateFinalScore(sections);
-    
-    await this.updateExercise(userId, {
-      sections,
-      status: 'evaluated',
-      totalScore,
-      evaluatedAt: new Date().toISOString(),
-      evaluatedBy: evaluatorId
-    });
+  async evaluateWithAI(
+    userId: string,
+    organizationId: string,
+    startIndex: number = 0,
+    endIndex: number = 2
+  ): Promise<void> {
+    const exerciseRef = doc(db, `users/${userId}/exercises/eombus`);
+    const exerciseDoc = await getDoc(exerciseRef);
+
+    if (!exerciseDoc.exists()) {
+      throw new Error('Exercise not found');
+    }
+
+    const exercise = exerciseDoc.data() as EombusPafiExercise;
+
+    // On permet l'évaluation si l'exercice est soumis ou déjà évalué
+    if (exercise.status !== 'submitted' && exercise.status !== 'evaluated') {
+      throw new Error('Exercise must be submitted or evaluated before evaluation');
+    }
+
+    try {
+      const sectionsToEvaluate = exercise.sections.slice(startIndex, endIndex);
+
+      const aiService = AIService;
+      const evaluation = await aiService.evaluateExercise({
+        type: 'eombus',
+        content: JSON.stringify({
+          sections: sectionsToEvaluate.map(section => ({
+            id: section.id,
+            title: section.title,
+            questions: section.questions.map(q => ({
+              type: q.type,
+              text: q.text,
+              timeContext: q.timeContext
+            }))
+          }))
+        }),
+        organizationId,
+        botId: 'default'
+      }) as EombusEvaluationResponse;
+
+      const updatedSections = [...exercise.sections];
+      
+      // Grouper les réponses par section
+      const responsesBySection = evaluation.responses.reduce((acc, response) => {
+        if (!acc[response.section]) {
+          acc[response.section] = [];
+        }
+        acc[response.section].push(response);
+        return acc;
+      }, {} as Record<string, typeof evaluation.responses>);
+
+      // Mettre à jour chaque section
+      for (let i = startIndex; i < endIndex; i++) {
+        const section = updatedSections[i];
+        if (!section) continue;
+
+        const sectionResponses = responsesBySection[section.title];
+        if (!sectionResponses) continue;
+
+        // Filtrer les questions qui ont du contenu
+        const answeredQuestions = section.questions
+          .map((q, index) => ({ ...q, index }))
+          .filter(q => q.text.trim() !== '');
+
+        // Pour chaque réponse de l'IA, trouver la question correspondante
+        sectionResponses.forEach((response, responseIndex) => {
+          // Trouver la question répondue correspondante
+          const answeredQuestion = answeredQuestions[responseIndex];
+          if (answeredQuestion) {
+            // Mettre à jour la question originale avec le bon index
+            section.questions[answeredQuestion.index] = {
+              ...answeredQuestion,
+              score: {
+                points: response.score,
+                maxPoints: response.maxPoints,
+                percentage: (response.score / response.maxPoints) * 100
+              },
+              feedback: response.comment,
+              trainerComment: response.comment
+            };
+          }
+        });
+      }
+
+      // Calculer le score total
+      const updates: Partial<EombusPafiExercise> = {
+        sections: updatedSections,
+        status: 'evaluated',
+        evaluatedAt: new Date().toISOString()
+      };
+
+      // Calculer le score total après chaque évaluation
+      const { finalScore, maxScore } = calculateTotalScore(updatedSections);
+      updates.totalScore = finalScore;
+      updates.maxScore = maxScore;
+
+      await updateDoc(exerciseRef, cleanUndefined(updates));
+
+    } catch (error) {
+      console.error('Error during AI evaluation:', error);
+      throw error;
+    }
   },
 
-  async evaluateWithAI(userId: string): Promise<void> {
+  async evaluateExercise(userId: string, sections: Section[], evaluatorId: string): Promise<void> {
+    const exerciseRef = doc(db, `users/${userId}/exercises/eombus`);
+
+    try {
+      const { finalScore, maxScore } = calculateTotalScore(sections);
+
+      await updateDoc(exerciseRef, {
+        sections,
+        status: 'evaluated',
+        evaluatedAt: new Date().toISOString(),
+        evaluatedBy: evaluatorId,
+        totalScore: finalScore,
+        maxScore
+      });
+    } catch (error) {
+      console.error('Error during manual evaluation:', error);
+      throw error;
+    }
+  },
+
+  async publishExercise(userId: string): Promise<void> {
     const exercise = await this.getExercise(userId);
-    
-    const evaluation = await AIService.evaluateExercise({
-      type: 'company',
-      sections: exercise.sections
-    });
-
-    // Mettre à jour les scores et commentaires basés sur l'évaluation AI
-    const updatedSections = exercise.sections.map((section, sectionIndex) => ({
-      ...section,
-      questions: section.questions.map((question, questionIndex) => {
-        const aiScore = evaluation.scores?.[sectionIndex]?.[questionIndex];
-        const aiFeedback = evaluation.feedbacks?.[sectionIndex]?.[questionIndex];
-
-        return {
-          ...question,
-          score: aiScore ? {
-            points: aiScore,
-            maxPoints: 100,
-            percentage: aiScore
-          } : question.score,
-          feedback: aiFeedback || question.feedback
-        };
-      })
-    }));
-
-    const totalScore = calculateFinalScore(updatedSections);
+    if (!exercise) {
+      throw new Error('Exercise not found');
+    }
 
     await this.updateExercise(userId, {
-      sections: updatedSections,
-      totalScore,
-      aiEvaluation: evaluation,
-      status: 'evaluated',
-      evaluatedAt: new Date().toISOString(),
-      evaluatedBy: 'ai'
+      status: 'published',
+      publishedAt: new Date().toISOString()
     });
-  }
+  },
 };

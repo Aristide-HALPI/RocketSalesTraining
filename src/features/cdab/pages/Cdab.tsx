@@ -1,13 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { ExerciseTemplate } from '../../../components/ExerciseTemplate';
-import { cdabService, type CdabExercise, type CdabCharacteristic } from '../services/cdabService';
+import { cdabService, type CdabCharacteristic } from '../services/cdabService';
 import { toast } from 'react-hot-toast';
-import { useFormateur } from '../../../hooks/useFormateur';
 import { useCdabStore } from '../../../stores/cdabStore';
-import { outilsCdabService } from '../../outilscdab/services/outilsCdabService';
-import { Link } from 'react-router-dom';
 
 export default function Cdab() {
   console.log('=== Montage du composant Cdab ===');
@@ -19,35 +16,69 @@ export default function Cdab() {
   const studentIdParam = searchParams.get('userId');
   const { currentExercise, updateExercise } = useCdabStore();
   const [loading, setLoading] = useState(true);
+  const [evaluatingBatch, setEvaluatingBatch] = useState<number | null>(null);
 
   const isFormateur = userProfile?.role === 'trainer' || userProfile?.role === 'admin';
   const isStudent = !!studentIdParam;
-  const canEdit = !isStudent && currentExercise?.status !== 'evaluated';
-  const canEvaluate = isFormateur && currentExercise?.status !== 'evaluated';
   const targetUserId = studentIdParam || currentUser?.uid || '';
 
-  // Afficher les zones de notation et commentaires si formateur/admin et que l'exercice n'est pas évalué
-  const showEvaluationFields = isFormateur && currentExercise?.status !== 'evaluated';
+  // Mise à jour de la logique de permission d'édition
+  const canEdit = useMemo(() => {
+    return isFormateur || // Les formateurs peuvent toujours éditer
+           (!isStudent && currentExercise?.status === 'submitted'); // Les autres ne peuvent éditer que si non évalué
+  }, [isFormateur, isStudent, currentExercise?.status]);
 
-  console.log('État des permissions détaillé:', JSON.stringify({
-    isFormateur,
-    isStudent,
-    canEdit,
-    canEvaluate,
-    showEvaluationFields,
-    userRole: userProfile?.role,
-    exerciseStatus: currentExercise?.status,
-    userProfile: {
-      uid: userProfile?.uid,
-      email: userProfile?.email,
-      role: userProfile?.role
-    },
-    currentExercise: currentExercise ? {
-      status: currentExercise.status,
-      evaluatedAt: currentExercise.evaluatedAt,
-      evaluatedBy: currentExercise.evaluatedBy
-    } : null
-  }, null, 2));
+  // Mise à jour de la logique pour afficher les champs d'évaluation
+  const showEvaluationFields = useMemo(() => {
+    return isFormateur || currentExercise?.status === 'evaluated';
+  }, [isFormateur, currentExercise?.status]);
+
+  // Fonction pour gérer l'évaluation par lots
+  const handleBatchEvaluation = useCallback(async (batchNumber: number) => {
+    if (!targetUserId || !currentUser?.uid || !userProfile?.organizationId || !currentExercise?.characteristics) {
+      console.log('Données manquantes:', { targetUserId, currentUser, userProfile, currentExercise });
+      return;
+    }
+    
+    setEvaluatingBatch(batchNumber);
+    try {
+      // Ajuster le calcul des indices pour évaluer 4 caractéristiques à la fois
+      const startIndex = (batchNumber - 1) * 4;
+      const endIndex = Math.min(startIndex + 3, currentExercise.characteristics.length - 1);
+      
+      console.log(`Évaluation du lot ${batchNumber}: caractéristiques ${startIndex + 1}-${endIndex + 1}`);
+      
+      await cdabService.evaluateWithAIBatch(
+        targetUserId,
+        userProfile.organizationId,
+        startIndex,
+        endIndex
+      );
+      
+      toast.success(`Caractéristiques ${startIndex + 1}-${endIndex + 1} évaluées avec succès`);
+    } catch (error) {
+      console.error('Erreur lors de l\'évaluation du lot:', error);
+      toast.error('Erreur lors de l\'évaluation');
+    } finally {
+      setEvaluatingBatch(null);
+    }
+  }, [targetUserId, currentUser?.uid, userProfile?.organizationId, currentExercise?.characteristics]);
+
+  // Fonction pour gérer la soumission
+  const handleSubmit = useCallback(async () => {
+    if (!targetUserId) return;
+    
+    try {
+      setLoading(true);
+      await cdabService.submitExercise(targetUserId);
+      toast.success('Exercice soumis avec succès');
+    } catch (error) {
+      console.error('Erreur lors de la soumission:', error);
+      toast.error('Erreur lors de la soumission');
+    } finally {
+      setLoading(false);
+    }
+  }, [targetUserId]);
 
   // Vérifier si l'utilisateur est autorisé
   useEffect(() => {
@@ -75,21 +106,24 @@ export default function Cdab() {
       return;
     }
 
-    console.log('Chargement de l\'exercice pour:', targetUserId);
-    const unsubscribe = cdabService.subscribeToExercise(targetUserId, (exerciseData) => {
-      console.log('Données de l\'exercice reçues:', exerciseData);
-      updateExercise(exerciseData);
+    setLoading(true);
+    
+    // Souscrire aux changements de l'exercice
+    const unsubscribe = cdabService.subscribeToExercise(targetUserId, (exercise) => {
+      console.log('Mise à jour de l\'exercice:', exercise);
+      updateExercise(exercise);
       setLoading(false);
     });
 
+    // Nettoyer la souscription quand le composant est démonté
     return () => {
-      console.log('Nettoyage de l\'abonnement');
       unsubscribe();
     };
-  }, [currentUser?.uid, targetUserId, authLoading]);
+  }, [authLoading, currentUser?.uid, targetUserId, updateExercise]);
 
+  // Fonction pour gérer le changement de caractéristique
   const handleCharacteristicChange = useCallback(async (index: number, field: keyof CdabCharacteristic, value: string) => {
-    if (!currentExercise || !canEdit) return;
+    if (!currentExercise || !canEdit || !targetUserId) return;
 
     const updatedCharacteristics = [...currentExercise.characteristics];
     updatedCharacteristics[index] = {
@@ -97,121 +131,97 @@ export default function Cdab() {
       [field]: value
     };
 
-    // Vérifier si l'exercice a au moins une réponse
-    const hasAnyAnswer = updatedCharacteristics.some(char =>
-      char.problems.trim() !== ''
-    );
-
-    const updatedExercise = {
+    const exerciseUpdate = {
       ...currentExercise,
       characteristics: updatedCharacteristics,
-      status: hasAnyAnswer ? 'in_progress' : 'not_started'
+      status: 'in_progress' as const,
+      updatedAt: new Date().toISOString()
     };
 
     try {
-      // Mettre à jour le store immédiatement pour la synchronisation en temps réel
-      updateExercise(updatedExercise);
-      
-      // Sauvegarder dans Firebase
-      await cdabService.updateExercise(targetUserId, updatedExercise);
-      
-      console.log('CDAB mis à jour avec succès');
+      if (targetUserId) {
+        await cdabService.updateExercise(targetUserId, exerciseUpdate);
+      }
     } catch (error) {
-      console.error('Erreur lors de la mise à jour:', error);
-      toast.error('Erreur lors de la sauvegarde');
+      console.error('Error updating exercise:', error);
+      toast.error('Erreur lors de la mise à jour');
     }
-  }, [currentExercise, canEdit, updateExercise, targetUserId]);
+  }, [currentExercise, canEdit, targetUserId]);
 
-  const handleScoreChange = useCallback((
-    index: number,
-    field: string,
-    score: number,
+  // Fonction pour gérer le changement de score
+  const handleScoreChange = useCallback(async (
+    characteristicIndex: number,
+    field: keyof CdabCharacteristic,
+    currentScore: number,
     comment: string
   ) => {
-    console.log('handleScoreChange appelé:', { index, field, score, comment });
-    if (!currentExercise) return;
-
-    const updatedCharacteristics = [...currentExercise.characteristics];
-    const characteristic = { ...updatedCharacteristics[index] };
-
-    console.log('Avant modification:', characteristic);
-
-    // Mettre à jour le score et le commentaire
-    (characteristic as any)[field] = score;
-    (characteristic as any)[field.replace('Score', 'Comment')] = comment;
-
-    updatedCharacteristics[index] = characteristic;
-
-    console.log('Après modification:', characteristic);
-
-    updateExercise({
-      ...currentExercise,
-      characteristics: updatedCharacteristics
-    });
-  }, [currentExercise, updateExercise]);
-
-  const handleSubmit = async () => {
-    if (!currentExercise || !targetUserId || isStudent) return;
+    if (!targetUserId || !currentUser?.uid) return;
 
     try {
-      setLoading(true);
-      // Mettre à jour CDAB
-      await cdabService.submitExercise(targetUserId);
-      
-      // Mettre à jour OutilsCDAB
-      if (outilsExercise) {
-        const updatedOutilsExercise = {
-          ...outilsExercise,
-          solution: currentExercise.characteristics.map((char, index) => ({
-            ...outilsExercise.solution[index],
-            characteristic: char.description || '',
-            definition: char.definition || '',
-            advantages: char.advantages || '',
-            benefits: char.benefits || '',
-            proofs: char.proofs || ''
-          })),
-          qualification: currentExercise.characteristics.map((char, index) => ({
-            ...outilsExercise.qualification[index],
-            problems: char.problems || ''
-          }))
-        };
-        
-        await outilsCdabService.updateExercise(targetUserId, updatedOutilsExercise);
-      }
-      
-      toast.success('Exercice soumis avec succès');
+      // Convertir le champ en string pour l'appel à updateCharacteristicScore
+      await cdabService.updateCharacteristicScore(
+        targetUserId,
+        characteristicIndex,
+        String(field),
+        currentScore,
+        comment
+      );
+      toast.success('Score mis à jour avec succès');
     } catch (error) {
-      console.error('Error submitting exercise:', error);
-      toast.error('Erreur lors de la soumission');
-    } finally {
-      setLoading(false);
+      console.error('Erreur lors de la mise à jour du score:', error);
+      toast.error('Erreur lors de la mise à jour du score');
     }
-  };
+  }, [targetUserId, currentUser?.uid]);
+
+  // Fonction pour redimensionner automatiquement les zones de texte
+  const autoResizeTextarea = useCallback((element: HTMLTextAreaElement) => {
+    element.style.height = 'auto';
+    element.style.height = `${element.scrollHeight}px`;
+  }, []);
+
+  // Hook pour appliquer l'auto-redimensionnement à tous les textareas
+  useEffect(() => {
+    const textareas = document.querySelectorAll('textarea');
+    textareas.forEach(textarea => {
+      autoResizeTextarea(textarea as HTMLTextAreaElement);
+      textarea.addEventListener('input', () => autoResizeTextarea(textarea as HTMLTextAreaElement));
+    });
+
+    // Cleanup
+    return () => {
+      textareas.forEach(textarea => {
+        textarea.removeEventListener('input', () => autoResizeTextarea(textarea as HTMLTextAreaElement));
+      });
+    };
+  }, [autoResizeTextarea, currentExercise]);
 
   console.log('État actuel:', { loading, authLoading, currentExercise });
 
-  if (authLoading || loading) {
-    console.log('Affichage du chargement');
-    return <div className="flex items-center justify-center min-h-screen">
-      <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500"></div>
-    </div>;
+  // Mise à jour de la logique pour permettre la soumission
+  const canSubmit = useMemo(() => {
+    return currentExercise?.status === 'evaluated' && currentExercise?.finalScore !== undefined;
+  }, [currentExercise?.status, currentExercise?.finalScore]);
+
+  if (authLoading) {
+    return <div>Chargement...</div>;
   }
 
   if (!currentExercise) {
-    console.log('Pas d\'exercice trouvé');
     return <div>Erreur: Impossible de charger l'exercice</div>;
   }
+
+  const exerciseStatus = currentExercise.status as 'not_started' | 'in_progress' | 'submitted' | 'evaluated';
 
   return (
     <ExerciseTemplate
       title="CDAB - Caractéristiques, Définitions, Avantages, Bénéfices"
       description="Faites une liste complète de toutes les caractéristiques de votre solution / produit (minimum 7) avec une explication claire si la caractéristique est difficile à comprendre ou si elle demande une définition (cas de jargon, terme technique, etc.), les avantages qu'elle offre, les bénéfices possibles pour le client, les preuves au cas où le client venait à douter, et les problèmes potentiels du client solutionnable par la caractéristique de votre solution."
-      currentScore={currentExercise.totalScore}
-      maxScore={currentExercise.maxScore}
-      hideScore={!isStudent}
-      status={currentExercise.status}
+      currentScore={currentExercise.finalScore ?? 0}
+      maxScore={100}
+      hideScore={true}
+      status={exerciseStatus}
       onSubmit={handleSubmit}
-      canSubmit={canEdit && currentExercise.status !== 'evaluated' && currentExercise.status !== 'submitted'}
+      canSubmit={canSubmit}
       aiEvaluation={currentExercise.aiEvaluation}
     >
       <div className="container mx-auto px-4 py-8">
@@ -220,18 +230,18 @@ export default function Cdab() {
             <div className="bg-white bg-opacity-50 p-4 rounded-lg">
               <h3 className="text-sm font-medium text-purple-800">Votre score</h3>
               <p className="text-2xl font-bold text-purple-900">
-                {currentExercise?.totalScore !== undefined ? `${currentExercise.totalScore}/30` : '-'}
+                {currentExercise?.finalScore !== undefined ? `${currentExercise.finalScore}/100` : '-'}
               </p>
-              <p className="text-xs text-purple-600 mt-1">(max 30 points)</p>
+              <p className="text-xs text-purple-600 mt-1">(max 100 points)</p>
             </div>
             
             <div className="bg-white bg-opacity-50 p-4 rounded-lg">
               <h3 className="text-sm font-medium text-teal-800">Statut de l'exercice</h3>
               <p className="text-2xl font-bold text-teal-900">
-                {currentExercise?.status === 'not_started' && 'À débuter'}
-                {currentExercise?.status === 'in_progress' && 'En cours'}
-                {currentExercise?.status === 'submitted' && 'En attente de correction'}
-                {currentExercise?.status === 'evaluated' && 'Corrigé'}
+                {exerciseStatus === 'not_started' && 'À débuter'}
+                {exerciseStatus === 'in_progress' && 'En cours'}
+                {exerciseStatus === 'submitted' && 'En attente de correction'}
+                {exerciseStatus === 'evaluated' && 'Corrigé'}
               </p>
             </div>
           </div>
@@ -240,25 +250,22 @@ export default function Cdab() {
         {isFormateur && (
           <div className="bg-blue-50 p-4 rounded-lg mb-8 flex justify-between items-center">
             <span className="text-blue-600 font-medium">Mode Formateur</span>
-            <button
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50"
-              onClick={async () => {
-                if (!targetUserId) return;
-                try {
-                  setLoading(true);
-                  await cdabService.evaluateWithAI(targetUserId);
-                  toast.success("L'exercice a été évalué par l'IA");
-                } catch (error) {
-                  console.error("Erreur lors de l'évaluation IA:", error);
-                  toast.error("Erreur lors de l'évaluation par l'IA");
-                } finally {
-                  setLoading(false);
-                }
-              }}
-              disabled={loading || !currentExercise || currentExercise.status !== 'submitted'}
-            >
-              {loading ? 'Évaluation en cours...' : 'Correction IA'}
-            </button>
+            <div className="flex gap-4">
+              <button
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+                onClick={() => handleBatchEvaluation(1)}
+                disabled={evaluatingBatch !== null}
+              >
+                {evaluatingBatch === 1 ? 'Évaluation en cours...' : 'Évaluer caractéristiques 1-4'}
+              </button>
+              <button
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+                onClick={() => handleBatchEvaluation(2)}
+                disabled={evaluatingBatch !== null}
+              >
+                {evaluatingBatch === 2 ? 'Évaluation en cours...' : 'Évaluer caractéristiques 5-8'}
+              </button>
+            </div>
           </div>
         )}
 
@@ -267,7 +274,7 @@ export default function Cdab() {
           {currentExercise.characteristics.map((characteristic, index) => (
             <div key={index} className="bg-blue-500 rounded-lg overflow-hidden">
               <div className="bg-blue-500 text-white px-4 py-2">
-                {characteristic.name}
+                {characteristic.name || `Caractéristique ${index + 1}`}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
                 <div className="bg-purple-100 rounded-lg p-4 flex flex-col h-full">
@@ -279,17 +286,13 @@ export default function Cdab() {
                       value={characteristic.description}
                       onChange={(e) => {
                         handleCharacteristicChange(index, 'description', e.target.value);
-                        e.target.style.height = 'auto';
-                        e.target.style.height = e.target.scrollHeight + 'px';
+                        autoResizeTextarea(e.target);
                       }}
                       disabled={!canEdit}
                       placeholder="Décrivez la caractéristique..."
-                      className="w-full bg-transparent resize-none border-none focus:ring-0 focus:outline-none text-gray-700 placeholder-gray-400 min-h-[100px]"
-                      style={{ height: 'auto' }}
-                      onFocus={(e) => {
-                        e.target.style.height = 'auto';
-                        e.target.style.height = e.target.scrollHeight + 'px';
-                      }}
+                      className="w-full bg-transparent resize-none border-none focus:ring-0 focus:outline-none text-gray-700 placeholder-gray-400 overflow-hidden"
+                      style={{ height: 'auto', minHeight: '100px' }}
+                      onInput={(e) => autoResizeTextarea(e.currentTarget)}
                     />
                   </div>
 
@@ -329,7 +332,7 @@ export default function Cdab() {
                       <div>
                         <label className="block text-sm font-medium text-purple-700 mb-1">Commentaire :</label>
                         <textarea
-                          className="w-full p-2 border border-purple-300 rounded-md focus:ring-purple-500 focus:border-purple-500 text-sm"
+                          className="w-full p-2 border border-purple-300 rounded-md focus:ring-purple-500 focus:border-purple-500 text-sm resize-none overflow-hidden"
                           value={characteristic.descriptionComment || ''}
                           onChange={(e) => {
                             console.log('Comment change event:', JSON.stringify({
@@ -347,10 +350,12 @@ export default function Cdab() {
                               characteristic.descriptionScore || 0,
                               e.target.value
                             );
+                            autoResizeTextarea(e.target);
                           }}
                           placeholder="Votre commentaire..."
                           disabled={!showEvaluationFields}
-                          style={{ minHeight: '60px', height: 'auto' }}
+                          style={{ height: 'auto', minHeight: '60px' }}
+                          onInput={(e) => autoResizeTextarea(e.currentTarget)}
                         />
                       </div>
                     </div>
@@ -375,17 +380,13 @@ export default function Cdab() {
                     value={characteristic.definition}
                     onChange={(e) => {
                       handleCharacteristicChange(index, 'definition', e.target.value);
-                      e.target.style.height = 'auto';
-                      e.target.style.height = e.target.scrollHeight + 'px';
+                      autoResizeTextarea(e.target);
                     }}
                     disabled={!canEdit}
                     placeholder="Expliquez les termes techniques ou complexes utilisés dans la caractéristique..."
-                    className="flex-grow bg-transparent resize-none border-none focus:ring-0 focus:outline-none text-gray-700 placeholder-gray-400 min-h-[100px]"
-                    style={{ height: 'auto' }}
-                    onFocus={(e) => {
-                      e.target.style.height = 'auto';
-                      e.target.style.height = e.target.scrollHeight + 'px';
-                    }}
+                    className="flex-grow bg-transparent resize-none border-none focus:ring-0 focus:outline-none text-gray-700 placeholder-gray-400 overflow-hidden"
+                    style={{ height: 'auto', minHeight: '100px' }}
+                    onInput={(e) => autoResizeTextarea(e.currentTarget)}
                   />
                 </div>
 
@@ -398,17 +399,13 @@ export default function Cdab() {
                     value={characteristic.advantages}
                     onChange={(e) => {
                       handleCharacteristicChange(index, 'advantages', e.target.value);
-                      e.target.style.height = 'auto';
-                      e.target.style.height = e.target.scrollHeight + 'px';
+                      autoResizeTextarea(e.target);
                     }}
                     disabled={!canEdit}
                     placeholder="Listez les avantages généraux de cette caractéristique..."
-                    className="flex-grow bg-transparent resize-none border-none focus:ring-0 focus:outline-none text-gray-700 placeholder-gray-400 min-h-[100px]"
-                    style={{ height: 'auto' }}
-                    onFocus={(e) => {
-                      e.target.style.height = 'auto';
-                      e.target.style.height = e.target.scrollHeight + 'px';
-                    }}
+                    className="flex-grow bg-transparent resize-none border-none focus:ring-0 focus:outline-none text-gray-700 placeholder-gray-400 overflow-hidden"
+                    style={{ height: 'auto', minHeight: '100px' }}
+                    onInput={(e) => autoResizeTextarea(e.currentTarget)}
                   />
                   {isFormateur && (
                     <div className="mt-4 border-t border-emerald-200 pt-4">
@@ -429,16 +426,16 @@ export default function Cdab() {
                       <div>
                         <label className="block text-sm font-medium text-emerald-700 mb-1">Commentaire :</label>
                         <textarea
-                          className="w-full p-2 border border-emerald-300 rounded-md focus:ring-emerald-500 focus:border-emerald-500 text-sm"
+                          className="w-full p-2 border border-emerald-300 rounded-md focus:ring-emerald-500 focus:border-emerald-500 text-sm resize-none overflow-hidden"
                           value={characteristic.advantagesComment || ''}
                           onChange={(e) => {
                             handleScoreChange(index, 'advantagesScore', characteristic.advantagesScore || 0, e.target.value);
-                            e.target.style.height = 'auto';
-                            e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+                            autoResizeTextarea(e.target);
                           }}
                           placeholder="Votre commentaire..."
                           disabled={!showEvaluationFields}
-                          style={{ minHeight: '60px', height: 'auto' }}
+                          style={{ height: 'auto', minHeight: '60px' }}
+                          onInput={(e) => autoResizeTextarea(e.currentTarget)}
                         />
                       </div>
                     </div>
@@ -462,17 +459,13 @@ export default function Cdab() {
                     value={characteristic.benefits}
                     onChange={(e) => {
                       handleCharacteristicChange(index, 'benefits', e.target.value);
-                      e.target.style.height = 'auto';
-                      e.target.style.height = e.target.scrollHeight + 'px';
+                      autoResizeTextarea(e.target);
                     }}
                     disabled={!canEdit}
                     placeholder="Décrivez les bénéfices concrets que le client obtiendra..."
-                    className="flex-grow bg-transparent resize-none border-none focus:ring-0 focus:outline-none text-gray-700 placeholder-gray-400 min-h-[100px]"
-                    style={{ height: 'auto' }}
-                    onFocus={(e) => {
-                      e.target.style.height = 'auto';
-                      e.target.style.height = e.target.scrollHeight + 'px';
-                    }}
+                    className="flex-grow bg-transparent resize-none border-none focus:ring-0 focus:outline-none text-gray-700 placeholder-gray-400 overflow-hidden"
+                    style={{ height: 'auto', minHeight: '100px' }}
+                    onInput={(e) => autoResizeTextarea(e.currentTarget)}
                   />
                   {isFormateur && (
                     <div className="mt-4 border-t border-orange-200 pt-4">
@@ -493,16 +486,16 @@ export default function Cdab() {
                       <div>
                         <label className="block text-sm font-medium text-orange-700 mb-1">Commentaire :</label>
                         <textarea
-                          className="w-full p-2 border border-orange-300 rounded-md focus:ring-orange-500 focus:border-orange-500 text-sm"
+                          className="w-full p-2 border border-orange-300 rounded-md focus:ring-orange-500 focus:border-orange-500 text-sm resize-none overflow-hidden"
                           value={characteristic.benefitsComment || ''}
                           onChange={(e) => {
                             handleScoreChange(index, 'benefitsScore', characteristic.benefitsScore || 0, e.target.value);
-                            e.target.style.height = 'auto';
-                            e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+                            autoResizeTextarea(e.target);
                           }}
                           placeholder="Votre commentaire..."
                           disabled={!showEvaluationFields}
-                          style={{ minHeight: '60px', height: 'auto' }}
+                          style={{ height: 'auto', minHeight: '60px' }}
+                          onInput={(e) => autoResizeTextarea(e.currentTarget)}
                         />
                       </div>
                     </div>
@@ -526,17 +519,13 @@ export default function Cdab() {
                     value={characteristic.proofs}
                     onChange={(e) => {
                       handleCharacteristicChange(index, 'proofs', e.target.value);
-                      e.target.style.height = 'auto';
-                      e.target.style.height = e.target.scrollHeight + 'px';
+                      autoResizeTextarea(e.target);
                     }}
                     disabled={!canEdit}
                     placeholder="Données chiffrées, témoignages ou études qui prouvent les bénéfices..."
-                    className="flex-grow bg-transparent resize-none border-none focus:ring-0 focus:outline-none text-gray-700 placeholder-gray-400 min-h-[100px]"
-                    style={{ height: 'auto' }}
-                    onFocus={(e) => {
-                      e.target.style.height = 'auto';
-                      e.target.style.height = e.target.scrollHeight + 'px';
-                    }}
+                    className="flex-grow bg-transparent resize-none border-none focus:ring-0 focus:outline-none text-gray-700 placeholder-gray-400 overflow-hidden"
+                    style={{ height: 'auto', minHeight: '100px' }}
+                    onInput={(e) => autoResizeTextarea(e.currentTarget)}
                   />
                   {isFormateur && (
                     <div className="mt-4 border-t border-yellow-200 pt-4">
@@ -557,16 +546,16 @@ export default function Cdab() {
                       <div>
                         <label className="block text-sm font-medium text-yellow-700 mb-1">Commentaire :</label>
                         <textarea
-                          className="w-full p-2 border border-yellow-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500 text-sm"
+                          className="w-full p-2 border border-yellow-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500 text-sm resize-none overflow-hidden"
                           value={characteristic.proofsComment || ''}
                           onChange={(e) => {
                             handleScoreChange(index, 'proofsScore', characteristic.proofsScore || 0, e.target.value);
-                            e.target.style.height = 'auto';
-                            e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+                            autoResizeTextarea(e.target);
                           }}
                           placeholder="Votre commentaire..."
                           disabled={!showEvaluationFields}
-                          style={{ minHeight: '60px', height: 'auto' }}
+                          style={{ height: 'auto', minHeight: '60px' }}
+                          onInput={(e) => autoResizeTextarea(e.currentTarget)}
                         />
                       </div>
                     </div>
@@ -590,17 +579,13 @@ export default function Cdab() {
                     value={characteristic.problems}
                     onChange={(e) => {
                       handleCharacteristicChange(index, 'problems', e.target.value);
-                      e.target.style.height = 'auto';
-                      e.target.style.height = e.target.scrollHeight + 'px';
+                      autoResizeTextarea(e.target);
                     }}
                     disabled={!canEdit}
                     placeholder="Décrivez les difficultés du prospect qui seraient résolues par cette caractéristique..."
-                    className="flex-grow bg-transparent resize-none border-none focus:ring-0 focus:outline-none text-gray-700 placeholder-gray-400 min-h-[100px]"
-                    style={{ height: 'auto' }}
-                    onFocus={(e) => {
-                      e.target.style.height = 'auto';
-                      e.target.style.height = e.target.scrollHeight + 'px';
-                    }}
+                    className="flex-grow bg-transparent resize-none border-none focus:ring-0 focus:outline-none text-gray-700 placeholder-gray-400 overflow-hidden"
+                    style={{ height: 'auto', minHeight: '100px' }}
+                    onInput={(e) => autoResizeTextarea(e.currentTarget)}
                   />
                   {isFormateur && (
                     <div className="mt-4 border-t border-red-200 pt-4">
@@ -621,16 +606,16 @@ export default function Cdab() {
                       <div>
                         <label className="block text-sm font-medium text-red-700 mb-1">Commentaire :</label>
                         <textarea
-                          className="w-full p-2 border border-red-300 rounded-md focus:ring-red-500 focus:border-red-500 text-sm"
+                          className="w-full p-2 border border-red-300 rounded-md focus:ring-red-500 focus:border-red-500 text-sm resize-none overflow-hidden"
                           value={characteristic.problemsComment || ''}
                           onChange={(e) => {
                             handleScoreChange(index, 'problemsScore', characteristic.problemsScore || 0, e.target.value);
-                            e.target.style.height = 'auto';
-                            e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+                            autoResizeTextarea(e.target);
                           }}
                           placeholder="Votre commentaire..."
                           disabled={!showEvaluationFields}
-                          style={{ minHeight: '60px', height: 'auto' }}
+                          style={{ height: 'auto', minHeight: '60px' }}
+                          onInput={(e) => autoResizeTextarea(e.currentTarget)}
                         />
                       </div>
                     </div>
@@ -660,25 +645,45 @@ export default function Cdab() {
               {loading ? 'Envoi en cours...' : 'Soumettre'}
             </button>
           ) : (
-            <button
-              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50"
-              onClick={async () => {
-                if (!targetUserId || !currentExercise) return;
-                try {
-                  setLoading(true);
-                  await cdabService.evaluateExercise(targetUserId, currentExercise.characteristics, currentUser?.uid);
-                  toast.success("Les résultats ont été publiés à l'apprenant");
-                } catch (error) {
-                  console.error("Erreur lors de la publication:", error);
-                  toast.error("Erreur lors de la publication des résultats");
-                } finally {
-                  setLoading(false);
-                }
-              }}
-              disabled={loading || !currentExercise || currentExercise.status !== 'submitted'}
-            >
-              {loading ? 'Publication en cours...' : 'Publier les résultats'}
-            </button>
+            <>
+              {/* Boutons d'évaluation par l'IA */}
+              <div className="flex gap-4">
+                <button
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+                  onClick={() => handleBatchEvaluation(1)}
+                  disabled={loading || evaluatingBatch === 1}
+                >
+                  {evaluatingBatch === 1 ? 'Évaluation en cours...' : 'Évaluer caractéristiques 1-4'}
+                </button>
+                <button
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+                  onClick={() => handleBatchEvaluation(2)}
+                  disabled={loading || evaluatingBatch === 2}
+                >
+                  {evaluatingBatch === 2 ? 'Évaluation en cours...' : 'Évaluer caractéristiques 5-8'}
+                </button>
+              </div>
+              {/* Bouton Publier les résultats */}
+              <button
+                className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50"
+                onClick={async () => {
+                  if (!targetUserId || !currentExercise || !currentUser?.uid) return;
+                  try {
+                    setLoading(true);
+                    await cdabService.evaluateExercise(targetUserId, currentExercise.characteristics, currentUser.uid);
+                    toast.success("Les résultats ont été publiés à l'apprenant");
+                  } catch (error) {
+                    console.error('Error publishing results:', error);
+                    toast.error('Erreur lors de la publication des résultats');
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading || !currentExercise?.status || currentExercise.status !== 'evaluated'}
+              >
+                {loading ? 'Publication...' : 'Publier les résultats'}
+              </button>
+            </>
           )}
         </div>
       </div>

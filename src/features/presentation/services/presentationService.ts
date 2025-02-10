@@ -1,30 +1,40 @@
 import { db } from '../../../lib/firebase';
-import { doc, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
-import { AIEvaluationResponse, AIService } from '../../../services/AIService';
+import { doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { evaluateExercise, AIEvaluationResponse } from '../../../api/ai/routes/evaluation';
+
+export enum ExerciseStatus {
+  NotStarted = 'not_started',
+  Draft = 'draft',
+  InProgress = 'in_progress',
+  Submitted = 'submitted',
+  Evaluated = 'evaluated',
+  Published = 'published'
+}
 
 export interface PresentationExercise {
   id: string;
-  userId: string;
-  status: 'not_started' | 'in_progress' | 'submitted' | 'evaluated';
   content: string;
-  totalScore: number;
+  status: ExerciseStatus;
+  totalScore?: number;
   maxScore: number;
+  trainerComment?: string;
+  trainerId?: string | null;
+  userId: string;
   createdAt: string;
   updatedAt: string;
-  aiEvaluation?: AIEvaluationResponse;
-  evaluatedAt?: string;
-  evaluatedBy?: string;
-  submittedAt?: string;
-  trainerComment?: string;
+  submittedAt?: string | null;
+  evaluatedAt?: string | null;
+  aiEvaluation?: AIEvaluationResponse | null;
 }
 
 const cleanUndefined = (obj: any): any => {
-  Object.keys(obj).forEach(key => {
-    if (obj[key] === undefined) {
-      delete obj[key];
+  const result: any = {};
+  for (const key in obj) {
+    if (obj[key] !== undefined) {
+      result[key] = obj[key];
     }
-  });
-  return obj;
+  }
+  return result;
 };
 
 export const presentationService = {
@@ -40,7 +50,7 @@ export const presentationService = {
         const newExercise: PresentationExercise = {
           id: 'presentation',
           userId,
-          status: 'not_started',
+          status: ExerciseStatus.NotStarted,
           content: '',
           totalScore: 0,
           maxScore: 20,
@@ -64,48 +74,49 @@ export const presentationService = {
     }
   },
 
-  subscribeToExercise(userId: string, callback: (exercise: PresentationExercise) => void) {
-    if (!userId) throw new Error('User ID is required');
-
-    try {
-      console.log('Subscribing to exercise for user:', userId);
-      const exerciseRef = doc(db, `users/${userId}/exercises`, 'presentation');
-      
-      return onSnapshot(exerciseRef, 
-        (doc) => {
-          if (doc.exists()) {
-            const data = doc.data() as PresentationExercise;
-            callback({
-              ...data,
-              id: doc.id,
-              maxScore: data.maxScore || 20  // Ensure maxScore is always set
-            });
-          } else {
-            // If document doesn't exist, create a new one
-            this.getExercise(userId)
-              .then(callback)
-              .catch(error => console.error('Error creating new exercise:', error));
-          }
-        },
-        (error) => {
-          console.error('Error subscribing to exercise:', error);
-          // Notify the UI of the error
-          callback({
-            id: 'error',
-            userId,
-            status: 'not_started',
-            content: '',
-            totalScore: 0,
-            maxScore: 20,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-        }
-      );
-    } catch (error) {
-      console.error('Error setting up exercise subscription:', error);
-      throw new Error('Failed to subscribe to exercise updates. Please try again.');
+  subscribeToExercise: (userId: string, callback: (exercise: PresentationExercise | null) => void) => {
+    if (!userId) {
+      console.error('No user ID provided for subscription');
+      return () => {};
     }
+
+    console.log('Setting up subscription for user:', userId);
+    const exerciseRef = doc(db, 'users', userId, 'exercises', 'presentation');
+
+    return onSnapshot(exerciseRef, (doc) => {
+      if (doc.exists()) {
+        const data = doc.data();
+        console.log('Exercise data from Firestore:', data);
+        callback({
+          id: doc.id,
+          content: data.content || '',
+          status: data.status || ExerciseStatus.NotStarted,
+          totalScore: data.totalScore || 0,
+          maxScore: data.maxScore || 20,
+          trainerComment: data.trainerComment || '',
+          trainerId: data.trainerId || null,
+          userId: data.userId || userId,
+          createdAt: data.createdAt || new Date().toISOString(),
+          updatedAt: data.updatedAt || new Date().toISOString(),
+          submittedAt: data.submittedAt || null,
+          evaluatedAt: data.evaluatedAt || null,
+          aiEvaluation: data.aiEvaluation || null
+        });
+      } else {
+        console.log('No exercise found for user:', userId);
+        // Créer un nouvel exercice si aucun n'existe
+        createInitialExercise(userId).then((exercise) => {
+          console.log('Created initial exercise:', exercise);
+          callback(exercise);
+        }).catch(error => {
+          console.error('Error creating initial exercise:', error);
+          callback(null);
+        });
+      }
+    }, (error) => {
+      console.error('Error in exercise subscription:', error);
+      callback(null);
+    });
   },
 
   async updateExercise(userId: string, updates: Partial<PresentationExercise>) {
@@ -118,45 +129,184 @@ export const presentationService = {
     }));
   },
 
+  async createOrUpdateExercise(userId: string, content: string) {
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
+
+    console.log('Creating/Updating exercise for user:', userId);
+    
+    try {
+      const exerciseRef = doc(db, `users/${userId}/exercises`, 'presentation');
+      const exerciseDoc = await getDoc(exerciseRef);
+
+      if (!exerciseDoc.exists()) {
+        console.log('Creating new exercise for user:', userId);
+        // Create new exercise
+        await setDoc(exerciseRef, {
+          content,
+          status: ExerciseStatus.Draft,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          userId,
+          maxScore: 20
+        });
+      } else {
+        console.log('Updating existing exercise for user:', userId);
+        // Update existing exercise
+        await updateDoc(exerciseRef, {
+          content,
+          status: ExerciseStatus.Draft,
+          updatedAt: serverTimestamp()
+        });
+      }
+    } catch (error) {
+      console.error('Error creating/updating exercise for user:', userId, error);
+      throw error;
+    }
+  },
+
   async submitExercise(userId: string) {
-    if (!userId) throw new Error('User ID is required');
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
 
-    const exerciseRef = doc(db, `users/${userId}/exercises`, 'presentation');
-    await updateDoc(exerciseRef, {
-      status: 'submitted',
-      submittedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
+    console.log('Submitting exercise for user:', userId);
+    
+    try {
+      const exerciseRef = doc(db, `users/${userId}/exercises`, 'presentation');
+      const exerciseDoc = await getDoc(exerciseRef);
+
+      if (!exerciseDoc.exists()) {
+        console.error('No exercise found to submit for user:', userId);
+        throw new Error('No exercise found to submit');
+      }
+
+      await updateDoc(exerciseRef, {
+        status: ExerciseStatus.Submitted,
+        submittedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      console.log('Exercise submitted successfully for user:', userId);
+    } catch (error) {
+      console.error('Error submitting exercise for user:', userId, error);
+      throw error;
+    }
   },
 
-  async evaluateExercise(userId: string, score: number, comment: string, evaluatorId: string) {
-    if (!userId) throw new Error('User ID is required');
-    if (!evaluatorId) throw new Error('Evaluator ID is required');
-    if (score < 0 || score > 20) throw new Error('Score must be between 0 and 20');
+  async evaluateExercise(userId: string, score: number, comment: string, trainerId: string) {
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
 
-    const exerciseRef = doc(db, `users/${userId}/exercises`, 'presentation');
-    await updateDoc(exerciseRef, {
-      status: 'evaluated',
-      totalScore: score,
-      trainerComment: comment,
-      evaluatedAt: new Date().toISOString(),
-      evaluatedBy: evaluatorId,
-      updatedAt: new Date().toISOString()
-    });
+    console.log('Evaluating exercise for user:', userId);
+    
+    try {
+      const exerciseRef = doc(db, `users/${userId}/exercises`, 'presentation');
+      const exerciseDoc = await getDoc(exerciseRef);
+
+      if (!exerciseDoc.exists()) {
+        console.error('No exercise found to evaluate for user:', userId);
+        throw new Error('No exercise found to evaluate');
+      }
+
+      await updateDoc(exerciseRef, {
+        totalScore: score,
+        trainerComment: comment,
+        trainerId: trainerId,
+        status: ExerciseStatus.Evaluated,
+        evaluatedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      console.log('Exercise evaluated successfully for user:', userId);
+    } catch (error) {
+      console.error('Error evaluating exercise for user:', userId, error);
+      throw error;
+    }
   },
 
-  async evaluateWithAI(userId: string): Promise<void> {
-    if (!userId) throw new Error('User ID is required');
+  async evaluateWithAI(userId: string, organizationId: string): Promise<void> {
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
 
-    const exercise = await this.getExercise(userId);
-    if (!exercise) throw new Error('Exercise not found');
+    console.log('Starting AI evaluation for user:', userId);
+    
+    try {
+      const exerciseRef = doc(db, `users/${userId}/exercises`, 'presentation');
+      const exerciseDoc = await getDoc(exerciseRef);
 
-    const aiService = new AIService();
-    const evaluation = await aiService.evaluatePresentation(exercise.content);
+      if (!exerciseDoc.exists()) {
+        console.error('Exercise not found for user:', userId);
+        throw new Error('Exercise not found');
+      }
 
-    await this.updateExercise(userId, {
-      aiEvaluation: evaluation,
-      updatedAt: new Date().toISOString()
-    });
+      const exerciseData = exerciseDoc.data();
+      
+      if (!exerciseData.content) {
+        console.error('No content found in exercise for user:', userId);
+        throw new Error('No content to evaluate');
+      }
+
+      console.log('Evaluating content for user:', userId, 'Content:', exerciseData.content);
+
+      // Formater le contenu pour l'IA
+      const formattedContent = {
+        type: 'presentation',
+        exercise: {
+          content: exerciseData.content
+        }
+      };
+
+      // Évaluer avec l'IA
+      const response = await evaluateExercise(
+        organizationId,
+        JSON.stringify(formattedContent),
+        'presentation'
+      );
+
+      console.log('AI Evaluation received for user:', userId, 'Evaluation:', response);
+
+      const aiEvaluation = typeof response === 'string' ? JSON.parse(response) : response;
+
+      // Mettre à jour le document avec l'évaluation et le score
+      await updateDoc(exerciseRef, {
+        aiEvaluation,
+        totalScore: aiEvaluation.score || 0,
+        maxScore: 20,
+        updatedAt: serverTimestamp()
+      });
+
+      console.log('Exercise updated with AI evaluation for user:', userId);
+    } catch (error) {
+      console.error('Error in AI evaluation for user:', userId, error);
+      throw error;
+    }
   }
 };
+
+// Fonction pour créer un nouvel exercice initial
+async function createInitialExercise(userId: string): Promise<PresentationExercise> {
+  const exerciseRef = doc(db, `users/${userId}/exercises`, 'presentation');
+  const exerciseDoc = await getDoc(exerciseRef);
+
+  if (exerciseDoc.exists()) {
+    throw new Error('Exercise already exists for user');
+  }
+
+  const newExercise: PresentationExercise = {
+    id: 'presentation',
+    userId,
+    status: ExerciseStatus.NotStarted,
+    content: '',
+    totalScore: 0,
+    maxScore: 20,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  await setDoc(exerciseRef, cleanUndefined(newExercise));
+  return newExercise;
+}

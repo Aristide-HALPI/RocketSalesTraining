@@ -1,16 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { useAuth } from '../../../contexts/AuthContext';
-import { db } from '../../../lib/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
-import { DialogueSection } from '../components/DialogueSection';
-import { EvaluationGrid } from '../components/EvaluationGrid';
-import { ScoreDisplay } from '../components/ScoreDisplay';
-import { AIService } from '../../../services/AIService';
-import { goalkeeperService } from '../services/goalkeeperService';
-import type { GoalkeeperExercise } from '../types';
-import { EvaluationCriterion, SubCriterion, GOALKEEPER_EVALUATION_CRITERIA } from '../types';
-import { toast } from 'react-toastify';
+import { doc, updateDoc } from "firebase/firestore";
+import React, { useEffect, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { toast } from "react-toastify";
+import { createThread, createThreadMessage } from "../../../api/ai/routes/thread";
+import { useAuth } from "../../../contexts/AuthContext";
+import { db } from "../../../lib/firebase";
+import { DialogueSection } from "../components/DialogueSection";
+import { EvaluationGrid } from "../components/EvaluationGrid";
+import { ScoreDisplay } from "../components/ScoreDisplay";
+import { goalkeeperService } from "../services/goalkeeperService";
+import type { GoalkeeperExercise } from "../types";
+import {
+  EvaluationCriterion,
+  GOALKEEPER_EVALUATION_CRITERIA,
+  SubCriterion,
+} from "../types";
 
 interface LocalEvaluation {
   criteria: EvaluationCriterion[];
@@ -50,6 +54,7 @@ const GoalkeeperExercise: React.FC = () => {
   const [exercise, setExercise] = useState<GoalkeeperExercise | null>(null);
   const [loading, setLoading] = useState(true);
   const [debouncedUpdate, setDebouncedUpdate] = useState<NodeJS.Timeout | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const [localFeedbacks, setLocalFeedbacks] = useState<{[key: string]: string}>({});
   const [localEvaluation, setLocalEvaluation] = useState<LocalEvaluation>(defaultEvaluation);
@@ -116,86 +121,74 @@ const GoalkeeperExercise: React.FC = () => {
     }
   };
 
-  // Mise à jour du score d'un critère
-  const handleUpdateScore = (criterionId: string, subCriterionId: string, score: number) => {
-    if (!exercise || !exercise.evaluation) return;
+  // Mise à jour de l'évaluation
+  const handleEvaluationUpdate = async (criterionId: string, subCriterionId: string, score: number, feedback: string) => {
+    if (!exercise || !userId || !isFormateur) return;
 
-    // S'assurer que nous avons une évaluation locale initialisée
-    const currentEvaluation: LocalEvaluation = localEvaluation;
-
-    // Mettre à jour le score du sous-critère spécifique
-    const updatedCriteria = currentEvaluation.criteria.map((criterion: EvaluationCriterion) => {
-      if (criterion.id === criterionId) {
-        return {
-          ...criterion,
-          subCriteria: criterion.subCriteria.map((sub: SubCriterion) => {
-            if (sub.id === subCriterionId) {
-              return { ...sub, score };
-            }
-            return sub;
-          })
-        };
-      }
-      return criterion;
-    });
+    // Mettre à jour l'évaluation locale
+    const updatedEvaluation = {
+      ...localEvaluation,
+      criteria: localEvaluation.criteria.map(criterion => {
+        if (criterion.id === criterionId) {
+          return {
+            ...criterion,
+            subCriteria: criterion.subCriteria.map(sub => {
+              if (sub.id === subCriterionId) {
+                return { ...sub, score, feedback };
+              }
+              return sub;
+            })
+          };
+        }
+        return criterion;
+      })
+    };
 
     // Calculer le nouveau score total
-    const totalScore = updatedCriteria.reduce((total: number, criterion: EvaluationCriterion) => 
-      total + criterion.subCriteria.reduce((subTotal: number, sub: SubCriterion) => 
-        subTotal + (Number(sub.score) || 0), 0
-      ), 0
-    );
+    const totalScore = updatedEvaluation.criteria.reduce((sum, criterion) => 
+      sum + criterion.subCriteria.reduce((subSum, sub) => subSum + sub.score, 0), 0);
+    updatedEvaluation.totalScore = totalScore;
 
-    // Créer la nouvelle évaluation
-    const updatedEvaluation: LocalEvaluation = {
-      ...currentEvaluation,
-      criteria: updatedCriteria,
-      totalScore
-    };
-
-    // Mettre à jour l'état local
+    // Mettre à jour l'état local immédiatement
     setLocalEvaluation(updatedEvaluation);
-    saveToLocalStorage(userId, {
-      feedbacks: localFeedbacks,
-      evaluation: updatedEvaluation
-    });
-  };
-
-  // Mise à jour du feedback d'un critère dans la grille
-  const handleUpdateCriterionFeedback = (criterionId: string, subCriterionId: string, feedback: string) => {
-    if (!exercise || !exercise.evaluation) return;
-
-    // S'assurer que nous avons une évaluation locale initialisée
-    const currentEvaluation: LocalEvaluation = localEvaluation;
-
-    // Mettre à jour le feedback du sous-critère spécifique
-    const updatedCriteria = currentEvaluation.criteria.map((criterion: EvaluationCriterion) => {
-      if (criterion.id === criterionId) {
-        return {
-          ...criterion,
-          subCriteria: criterion.subCriteria.map((sub: SubCriterion) => {
-            if (sub.id === subCriterionId) {
-              return { ...sub, feedback };
-            }
-            return sub;
-          })
-        };
+    
+    // Mettre à jour l'exercice local
+    const updatedExercise = {
+      ...exercise,
+      evaluation: {
+        ...exercise.evaluation,
+        criteria: updatedEvaluation.criteria,
+        totalScore
       }
-      return criterion;
-    });
-
-    // Créer la nouvelle évaluation
-    const updatedEvaluation: LocalEvaluation = {
-      ...currentEvaluation,
-      criteria: updatedCriteria
     };
+    setExercise(updatedExercise);
 
-    // Mettre à jour l'état local
-    setLocalEvaluation(updatedEvaluation);
+    // Sauvegarder dans le stockage local
     saveToLocalStorage(userId, {
       feedbacks: localFeedbacks,
       evaluation: updatedEvaluation
     });
+
+    // Annuler la mise à jour précédente si elle existe
+    if (debouncedUpdate) {
+      clearTimeout(debouncedUpdate);
+    }
+
+    // Mettre à jour Firestore avec un délai
+    const newTimeout = setTimeout(async () => {
+      try {
+        await goalkeeperService.updateEvaluation(userId, updatedExercise.evaluation);
+        console.log('Évaluation mise à jour avec succès:', updatedExercise.evaluation);
+      } catch (error) {
+        console.error('Erreur lors de la mise à jour de l\'évaluation:', error);
+        // En cas d'erreur, revenir à l'état précédent
+        setLocalEvaluation(localEvaluation);
+        setExercise(exercise);
+        toast.error('Erreur lors de la mise à jour de l\'évaluation');
+      }
+    }, 1000);
+
+    setDebouncedUpdate(newTimeout);
   };
 
   // Mise à jour du feedback d'une ligne de dialogue
@@ -337,35 +330,191 @@ const GoalkeeperExercise: React.FC = () => {
   // Fonction d'évaluation IA
   const handleAIEvaluation = async () => {
     if (!exercise || !userId) return;
-    
-    try {
-      // Évaluation du premier appel
-      const firstCallEvaluation = await AIService.evaluateDialogue(exercise.firstCall.lines);
-      
-      // Évaluation du deuxième appel
-      const secondCallEvaluation = await AIService.evaluateDialogue(exercise.secondCall.lines);
-      
-      // Combiner les évaluations
-      const combinedEvaluation = {
-        score: (firstCallEvaluation.score + secondCallEvaluation.score) / 2,
-        feedback: `Premier appel:\n${firstCallEvaluation.feedback}\n\nDeuxième appel:\n${secondCallEvaluation.feedback}`,
-        strengths: [...firstCallEvaluation.strengths, ...secondCallEvaluation.strengths],
-        improvements: [...firstCallEvaluation.improvements, ...secondCallEvaluation.improvements],
-        criteria: firstCallEvaluation.criteria.map((criterion, index) => ({
-          ...criterion,
-          score: (criterion.score + secondCallEvaluation.criteria[index].score) / 2,
-          feedback: `Premier appel: ${criterion.feedback}\nDeuxième appel: ${secondCallEvaluation.criteria[index].feedback}`
-        }))
-      };
 
-      // Mise à jour de l'évaluation dans la base de données
-      await AIService.updateAIEvaluation(userId, combinedEvaluation);
-      
-      console.log('Évaluation IA terminée avec succès');
-    } catch (error) {
-      console.error('Erreur lors de l\'évaluation IA:', error);
-      alert('Une erreur est survenue lors de l\'évaluation par l\'IA. Veuillez réessayer plus tard.');
+    setAiLoading(true);
+
+    const organizationId = import.meta.env.VITE_FABRILE_ORG_ID;
+    const botId = import.meta.env.VITE_GOALKEEPER_BOT_ID;
+    const token = import.meta.env.VITE_FABRILE_TOKEN;
+
+    if (!organizationId || !botId || !token) {
+      console.error("Missing environment variables for AI evaluation");
+      toast.error("Error: Missing configuration for AI evaluation");
+      setAiLoading(false);
+      return;
     }
+
+    try {
+      const thread = await createThread(organizationId, botId);
+
+      // Prepare the dialogue with line numbers for reference
+      const firstCallLines = exercise.firstCall.lines.map(
+        (line, index) => `[${index + 1}] ${line.speaker}: ${line.text}`
+      );
+      const secondCallLines = exercise.secondCall.lines.map(
+        (line, index) =>
+          `[${firstCallLines.length + index + 1}] ${line.speaker}: ${line.text}`
+      );
+
+      const dialogue = [...firstCallLines, ...secondCallLines].join("\n");
+
+      const prompt = `Please evaluate this goalkeeper exercise dialogue and provide feedback:
+${dialogue}
+
+IMPORTANT: Your response MUST be in valid JSON format with the following structure:
+{
+  "lineFeedback": {
+    "1": "Feedback for line 1",
+    "2": "Feedback for line 2",
+    // ... for each line
+  },
+  "evaluation": {
+    "criteria": [
+      {
+        "name": "criteria_name",
+        "score": number,
+        "maxPoints": number,
+        "feedback": "detailed feedback"
+      }
+      // ... for each criteria
+    ]
+  }
+}
+
+Evaluate based on these criteria:
+${GOALKEEPER_EVALUATION_CRITERIA.map((criterion) =>
+  criterion.subCriteria
+    .map(
+      (subCriteria) =>
+        `${subCriteria.name}: ${subCriteria.maxPoints} points`
+    )
+    .join("\n")
+).join("\n")}
+
+Remember: Your response MUST be valid JSON that can be parsed with JSON.parse().`;
+
+      const result = await createThreadMessage(
+        organizationId,
+        thread.id,
+        prompt
+      );
+
+      if (!result || !result.completion || !result.completion.content) {
+        throw new Error("No valid response received from AI");
+      }
+
+      const feedbackData = result.completion.content;
+      console.log("Raw AI response:", feedbackData);
+
+      // Process the AI feedback
+      try {
+        const { evaluation: aiEvaluation, lineFeedback } =
+          processAIFeedback(feedbackData);
+        console.log("Processed evaluation:", aiEvaluation);
+        console.log("Processed line feedback:", lineFeedback);
+
+        // Update exercise with line-specific feedback
+        const updatedExercise: GoalkeeperExercise = {
+          ...exercise,
+          status: "evaluated" as const,
+          evaluation: aiEvaluation,
+          firstCall: {
+            ...exercise.firstCall,
+            lines: exercise.firstCall.lines.map((line, index) => ({
+              ...line,
+              feedback: lineFeedback[index + 1] || line.feedback || "",
+            })),
+          },
+          secondCall: {
+            ...exercise.secondCall,
+            lines: exercise.secondCall.lines.map((line, index) => ({
+              ...line,
+              feedback:
+                lineFeedback[exercise.firstCall.lines.length + index + 1] ||
+                line.feedback ||
+                "",
+            })),
+          },
+          updatedAt: new Date().toISOString()
+        };
+
+        setExercise(updatedExercise);
+        // Mettre à jour l'exercice complet avec le nouveau statut et l'évaluation
+        await goalkeeperService.updateExercise(userId, updatedExercise);
+
+        setLocalEvaluation(aiEvaluation);
+        toast.success("AI evaluation completed successfully!");
+      } catch (error) {
+        console.error("Error processing AI feedback:", error);
+      }
+    } catch (error) {
+      console.error("Error during AI evaluation:", error);
+      toast.error(
+        "Error during AI evaluation. Please check the console for more details."
+      );
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const processAIFeedback = (
+    feedback: string
+  ): {
+    evaluation: LocalEvaluation;
+    lineFeedback: { [key: number]: string };
+  } => {
+    let parsedFeedback;
+    try {
+      // Strip out markdown code block markers if present
+      const cleanedFeedback = feedback.replace(/^```json\n|\n```$/g, '').trim();
+      parsedFeedback = JSON.parse(cleanedFeedback);
+    } catch (e) {
+      console.error("Failed to parse AI feedback JSON:", e);
+      throw new Error("Invalid AI response format");
+    }
+
+    console.log("Parsed feedback:", parsedFeedback);
+
+    const evaluation: LocalEvaluation = {
+      criteria: GOALKEEPER_EVALUATION_CRITERIA.map((criterion) => {
+        const criterionSubCriteria = criterion.subCriteria.map(subCriterion => {
+          const aiCriterion = parsedFeedback.evaluation.criteria.find(
+            (c: any) => c.name === subCriterion.name
+          );
+          return {
+            ...subCriterion,
+            score: aiCriterion?.score || 0,
+            feedback: aiCriterion?.feedback || ""
+          };
+        });
+
+        const totalScore = criterionSubCriteria.reduce((acc, sub) => acc + sub.score, 0);
+
+        return {
+          ...criterion,
+          score: totalScore,
+          subCriteria: criterionSubCriteria
+        };
+      }),
+      totalScore: GOALKEEPER_EVALUATION_CRITERIA.reduce((total, criterion) => {
+        const subScores = criterion.subCriteria.map(sub => {
+          const aiCriterion = parsedFeedback.evaluation.criteria.find(
+            (c: any) => c.name === sub.name
+          );
+          return aiCriterion?.score || 0;
+        });
+        return total + subScores.reduce((acc, score) => acc + score, 0);
+      }, 0),
+      evaluatedBy: "AI",
+      evaluatedAt: new Date().toISOString(),
+    };
+
+    console.log("Processed evaluation:", evaluation);
+
+    // Process line-by-line feedback
+    const lineFeedback: { [key: number]: string } = parsedFeedback.lineFeedback || {};
+
+    return { evaluation, lineFeedback };
   };
 
   // Chargement initial de l'exercice
@@ -427,7 +576,7 @@ const GoalkeeperExercise: React.FC = () => {
   }
 
   // Rendu conditionnel de la grille d'évaluation
-  const showEvaluationGrid = isFormateur || exercise?.status === 'submitted';
+  const showEvaluationGrid = isFormateur || exercise?.status === 'evaluated' || exercise?.status === 'submitted';
   console.log('Debug - Evaluation Grid:', {
     isFormateur,
     status: exercise?.status,
@@ -437,36 +586,41 @@ const GoalkeeperExercise: React.FC = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="bg-gradient-to-r from-purple-50 via-blue-50 to-green-50 rounded-lg p-6 mb-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Goalkeeper</h1>
-        <p className="text-gray-600 mb-4">
-          Mettez-vous dans la peau d'un commercial qui appelle une entreprise pour la première fois. Votre objectif est d'obtenir un rendez-vous avec le décideur.
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-blue-600 mb-4">Passer le Goalkeeper</h1>
+        <p className="text-gray-700 mb-6">
+          Écrivez un dialogue complet d'une conversation téléphonique avec le/la "goalkeeper" dans le but qu'il/elle vous passe le décideur
+          (en utilisant les techniques apprises pendant la formation)
         </p>
+      </div>
 
-        {/* Zone de score et statut en deux colonnes égales */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-white bg-opacity-50 rounded p-4">
-            <div className="text-purple-700">Votre score</div>
-            <div className="flex items-baseline">
-              <span className="text-2xl font-bold text-purple-900 mr-2">
-                {exercise?.totalScore || '-'}
-              </span>
-              <span className="text-sm text-purple-600">
-                (max {exercise?.maxScore || 30} points)
-              </span>
-            </div>
-          </div>
-
-          <div className="bg-white bg-opacity-50 rounded p-4">
-            <div className="text-blue-700">Statut de l'exercice</div>
-            <div className="text-2xl font-bold text-blue-900">
-              {exercise?.status === 'not_started' && 'Non commencé'}
+      <div className="flex gap-4 mb-8">
+        {exercise.status === 'evaluated' && (
+          <ScoreDisplay 
+            totalScore={exercise.evaluation?.criteria.reduce((sum, criterion) => 
+              sum + criterion.subCriteria.reduce((subSum, sub) => subSum + sub.score, 0), 0) || 0} 
+            maxScore={GOALKEEPER_EVALUATION_CRITERIA.reduce((sum, criterion) => 
+              sum + criterion.subCriteria.reduce((subSum, sub) => subSum + sub.maxPoints, 0), 0)}
+          />
+        )}
+        
+        {exercise.status !== 'not_started' && (
+          <div className={`p-4 rounded-lg flex-grow ${exercise.status === 'evaluated' ? 'bg-green-100' : 'bg-yellow-100'}`}>
+            <h2 className={`text-lg font-semibold ${exercise.status === 'evaluated' ? 'text-green-800' : 'text-yellow-800'}`}>
+              Statut de l'exercice
+            </h2>
+            <div className="text-sm text-gray-600">
               {exercise?.status === 'in_progress' && 'En cours'}
-              {exercise?.status === 'submitted' && 'Soumis'}
-              {exercise?.status === 'evaluated' && 'Évalué'}
+              {exercise?.status === 'submitted' && 'En attente de correction'}
+              {exercise?.status === 'evaluated' && 'Corrigé'}
             </div>
+            {exercise.status === 'evaluated' && exercise.evaluation?.evaluatedAt && (
+              <p className="text-sm text-green-600 mt-1">
+                Corrigé le {new Date(exercise.evaluation.evaluatedAt).toLocaleDateString()}
+              </p>
+            )}
           </div>
-        </div>
+        )}
       </div>
 
       <Link to="/" className="inline-flex items-center text-green-600 hover:text-green-800 mb-6">
@@ -483,50 +637,54 @@ const GoalkeeperExercise: React.FC = () => {
           <button
             onClick={handleAIEvaluation}
             className="px-6 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 flex items-center gap-2"
+            disabled={aiLoading}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" />
-            </svg>
-            Corriger avec l'IA
+            {aiLoading ? (
+              <>
+                <svg className="animate-spin h-5 w-5 mr-3" viewBox="0 0 24 24">
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
+                </svg>
+                Évaluation en cours...
+              </>
+            ) : (
+              <>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" />
+                </svg>
+                Corriger avec l'IA
+              </>
+            )}
           </button>
         </div>
       )}
 
-      <div className="flex gap-4 mb-8">
-        {exercise.status === 'evaluated' && (
-          <ScoreDisplay 
-            totalScore={exercise.evaluation?.totalScore || 0} 
-            maxScore={GOALKEEPER_EVALUATION_CRITERIA.reduce((sum, criterion) => sum + criterion.maxPoints, 0)}
-          />
-        )}
-        
-        {exercise.status !== 'in_progress' && (
-          <div className={`p-4 rounded-lg flex-grow ${exercise.status === 'evaluated' ? 'bg-green-100' : 'bg-yellow-100'}`}>
-            <h2 className={`text-lg font-semibold ${exercise.status === 'evaluated' ? 'text-green-800' : 'text-yellow-800'}`}>
-              Statut de l'exercice
-            </h2>
-            <div className="text-sm text-gray-600">
-              {exercise?.status === 'not_started' && 'À débuter'}
-              {exercise?.status === 'in_progress' && 'En cours'}
-              {exercise?.status === 'submitted' && 'En attente de correction'}
-              {exercise?.status === 'evaluated' && 'Corrigé'}
-            </div>
-            {exercise.status === 'evaluated' && exercise.evaluation?.evaluatedAt && (
-              <p className="text-sm text-green-600 mt-1">
-                Corrigé le {new Date(exercise.evaluation.evaluatedAt).toLocaleDateString()}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-blue-600 mb-4">Passer le Goalkeeper</h1>
-        <p className="text-gray-700 mb-6">
-          Écrivez un dialogue complet d'une conversation téléphonique avec le/la "goalkeeper" dans le but qu'il/elle vous passe le décideur
-          (en utilisant les techniques apprises pendant la formation)
-        </p>
-      </div>
+      {!isFormateur && exercise.status === 'in_progress' && (
+        <div className="flex justify-end mt-8">
+          <button
+            onClick={handleSubmit}
+            className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+          >
+            Soumettre
+          </button>
+        </div>
+      )}
 
       {exercise.firstCall && (
         <>
@@ -558,18 +716,7 @@ const GoalkeeperExercise: React.FC = () => {
         </>
       )}
 
-      {!isFormateur && exercise.status === 'in_progress' && (
-        <div className="flex justify-end mt-8">
-          <button
-            onClick={handleSubmit}
-            className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-          >
-            Soumettre
-          </button>
-        </div>
-      )}
-
-      {(showEvaluationGrid || exercise.status === 'evaluated') && exercise.evaluation && (
+      {(isFormateur || exercise.status === 'evaluated') && exercise.evaluation && (
         <div className="mt-12 mb-8">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-bold">Grille d'évaluation</h2>
@@ -584,8 +731,8 @@ const GoalkeeperExercise: React.FC = () => {
           <EvaluationGrid
             isFormateur={isFormateur}
             evaluation={localEvaluation}
-            onUpdateScore={handleUpdateScore}
-            onUpdateFeedback={handleUpdateCriterionFeedback}
+            onUpdateScore={(criterionId, subCriterionId, score) => handleEvaluationUpdate(criterionId, subCriterionId, score, '')}
+            onUpdateFeedback={(criterionId, subCriterionId, feedback) => handleEvaluationUpdate(criterionId, subCriterionId, localEvaluation.criteria.find(criterion => criterion.id === criterionId)?.subCriteria.find(sub => sub.id === subCriterionId)?.score || 0, feedback)}
           />
           {isFormateur && (
             <div className="mt-8 flex justify-end gap-4">

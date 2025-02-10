@@ -25,6 +25,7 @@ export interface User {
   createdAt: string;
   updatedAt: string;
   lastLogin: string;
+  organizationId: string;
   permissions: UserPermissions;
   metadata?: UserMetadata;
   profilePicture?: string;
