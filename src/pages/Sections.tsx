@@ -92,6 +92,18 @@ export default function Sections() {
     });
   };
 
+  const handleAnswerChange = (sectionIndex: number, answerIndex: number, newText: string) => {
+    if (!exercise || !targetUserId || exercise.status !== ExerciseStatus.InProgress) return;
+
+    const updatedExercise = { ...exercise };
+    updatedExercise.sections[sectionIndex].answers[answerIndex].text = newText;
+
+    setExercise(updatedExercise);
+    sectionsService.updateExercise(targetUserId, {
+      sections: updatedExercise.sections
+    });
+  };
+
   const handleSubmit = async () => {
     if (!currentUser?.uid) return;
     
@@ -289,6 +301,7 @@ export default function Sections() {
                               value={answer.text}
                               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
                                 autoResizeTextarea(e.target);
+                                handleAnswerChange(sectionIndex, answerIndex, e.target.value);
                               }}
                               onInput={(e: React.FormEvent<HTMLTextAreaElement>) => {
                                 autoResizeTextarea(e.currentTarget);
