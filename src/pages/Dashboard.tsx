@@ -34,97 +34,81 @@ export default function Dashboard() {
     {
       title: 'Bienvenue',
       description: 'Message de bienvenue et instructions générales',
-      duration: '5 min',
       path: '/welcome'
     },
     {
       title: 'Votre Solution',
       description: 'Décrivez votre solution pour les exercices',
-      duration: '15 min',
       path: '/solution'
     },
     {
       title: "Matrice d'Eisenhower",
       description: 'Priorisez vos tâches avec la matrice d\'Eisenhower',
-      duration: '20 min',
       path: '/eisenhower'
     },
     {
       title: 'Passer le Goalkeeper',
       description: 'Exercice de vente avec la méthode Goalkeeper',
-      duration: '25 min',
       path: '/goalkeeper'
     },
     {
       title: 'Les 3 sections',
       description: 'Exercice sur les motivateurs, caractéristiques et concepts de vente',
-      duration: '30 min',
       path: '/sections'
     },
     {
       title: 'RDV avec le Décideur',
       description: 'Simulation d\'un rendez-vous avec un décideur',
-      duration: '35 min',
       path: '/meeting'
     },
     {
       title: '(s\')IIEP',
       description: 'Méthode IIEP pour structurer votre approche commerciale',
-      duration: '40 min',
       path: '/iiep'
     },
     {
       title: 'Présentation de votre société',
       description: 'Techniques pour présenter efficacement votre entreprise',
-      duration: '35 min',
       path: '/presentation'
     },
     {
       title: 'EOMBUS-PAF-I',
       description: 'Apprenez à structurer votre approche commerciale',
-      duration: '120 min',
       path: '/eombus-pafi'
     },
     {
       title: 'Les 3 Qlés',
       description: 'Points clés de la négociation',
-      duration: '90 min',
       path: '/cles'
     },
     {
       title: 'CDAB',
       description: 'Apprenez à structurer votre discours avec la méthode CDAB',
-      duration: '25 min',
       path: '/cdab'
     },
     {
       title: 'OUTIL CDAB',
       description: 'Mettez en pratique la méthode CDAB sur différents scénarios',
-      duration: '35 min',
       path: '/cdab-practice'
     },
     {
       title: 'Objections',
       description: 'Gestion des objections clients',
-      duration: '90 min',
       path: '/objections'
     },
     {
       title: 'Points Bonus',
       description: 'Techniques avancées et cas spéciaux',
-      duration: '60 min',
       path: '/bonus'
     },
     {
       title: 'Points - Jeu de Rôle final',
       description: 'Mise en situation finale pour valider les acquis',
-      duration: '60 min',
       path: '/roleplay'
     },
     {
       title: 'Certification',
       description: 'Bilan des résultats et certification finale',
-      duration: '10 min',
       path: '/certification'
     }
   ];
@@ -133,8 +117,8 @@ export default function Dashboard() {
     <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
       {/* En-tête */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">
-          Rocket Sales Training
+        <h1 className="text-2xl font-semibold text-gray-900">
+          Sales Hero Training
         </h1>
         <p className="mt-2 text-sm text-gray-600">
           Bienvenue dans votre parcours de formation commerciale
@@ -177,18 +161,18 @@ export default function Dashboard() {
             key={index}
             className="bg-white overflow-hidden shadow-lg rounded-lg hover:shadow-xl transition-shadow duration-200 p-8"
           >
-            <div className="flex justify-between items-start mb-6">
-              <div>
+            <div className="mb-6">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-teal-100 text-teal-800 font-semibold">
+                  {index + 1}
+                </span>
                 <h3 className="text-xl font-medium text-gray-900">
                   {exercise.title}
                 </h3>
-                <p className="mt-2 text-base text-gray-500">
-                  {exercise.description}
-                </p>
               </div>
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-teal-100 text-teal-800">
-                {exercise.duration}
-              </span>
+              <p className="mt-2 text-base text-gray-500">
+                {exercise.description}
+              </p>
             </div>
             <div>
               <Link to={exercise.path}>

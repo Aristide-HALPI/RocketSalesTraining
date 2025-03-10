@@ -59,11 +59,15 @@ export const DialogueSection: React.FC<DialogueSectionProps> = ({
                   disabled={isSubmitted || isFormateur}
                   placeholder="Écrivez votre dialogue ici..."
                   className="w-full min-h-[80px] p-2 text-sm border border-gray-200 rounded resize-y focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-700"
-                  style={{ height: 'auto', overflow: 'hidden' }}
+                  style={{ 
+                    height: 'auto',
+                    minHeight: '80px',
+                    overflow: 'hidden'
+                  }}
                   onInput={(e) => {
                     const target = e.target as HTMLTextAreaElement;
                     target.style.height = 'auto';
-                    target.style.height = target.scrollHeight + 'px';
+                    target.style.height = `${Math.max(target.scrollHeight, 80)}px`;
                   }}
                 />
               </div>
@@ -74,11 +78,15 @@ export const DialogueSection: React.FC<DialogueSectionProps> = ({
                     onChange={(e) => onUpdateFeedback(index, e.target.value)}
                     placeholder="Ajouter un commentaire..."
                     className="w-full min-h-[80px] p-2 text-sm border border-gray-300 rounded resize-y bg-gray-50 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                    style={{ height: 'auto', overflow: 'hidden' }}
+                    style={{ 
+                      height: 'auto',
+                      minHeight: '80px',
+                      overflow: 'hidden'
+                    }}
                     onInput={(e) => {
                       const target = e.target as HTMLTextAreaElement;
                       target.style.height = 'auto';
-                      target.style.height = `${target.scrollHeight}px`;
+                      target.style.height = `${Math.max(target.scrollHeight, 80)}px`;
                     }}
                   />
                 ) : (

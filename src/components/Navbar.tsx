@@ -13,7 +13,9 @@ export default function Navbar() {
         <div className="flex justify-between h-16">
           <div className="flex items-center">
             <Link to="/" className="text-xl font-bold">
-              Rocket Sales Training
+              <span className="text-xl font-semibold">
+                Sales Hero Training
+              </span>
             </Link>
             <div className="hidden md:flex items-center space-x-8 ml-10">
               {(userProfile?.role === 'admin' || userProfile?.role === 'trainer') && (

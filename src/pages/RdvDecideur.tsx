@@ -117,6 +117,12 @@ export default function RdvDecideur() {
 
     const updatedExercise = { ...exercise };
     updatedExercise.sections[sectionIndex].dialogues[dialogueIndex].text = value;
+    
+    // Mettre à jour le statut si c'est la première modification
+    if (updatedExercise.status === ExerciseStatus.NotStarted) {
+      updatedExercise.status = ExerciseStatus.InProgress;
+    }
+    
     setExercise(updatedExercise);
 
     if (debouncedUpdate) {

@@ -517,7 +517,7 @@ export const rdvDecideurService = {
         ...exercise,
         sections: updatedSections,
         aiEvaluation: response,
-        totalScore: calculateFinalScore(exercise), // Utiliser calculateFinalScore au lieu du score de l'IA
+        totalScore: aiEvaluation.finalScoreOutOf40 || totalScore, // Utiliser le score de l'IA
         maxScore: 40,
         evaluatedAt: new Date().toISOString(),
         status: ExerciseStatus.Evaluated,

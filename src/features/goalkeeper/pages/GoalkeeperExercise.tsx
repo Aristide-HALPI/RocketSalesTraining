@@ -129,18 +129,42 @@ const GoalkeeperExercise: React.FC = () => {
     const updatedEvaluation = {
       ...localEvaluation,
       criteria: localEvaluation.criteria.map(criterion => {
+        const newCriterion = GOALKEEPER_EVALUATION_CRITERIA.find(c => c.id === criterion.id);
         if (criterion.id === criterionId) {
           return {
             ...criterion,
+            maxPoints: newCriterion?.maxPoints || criterion.maxPoints,
             subCriteria: criterion.subCriteria.map(sub => {
+              const newSub = newCriterion?.subCriteria.find(s => s.id === sub.id);
               if (sub.id === subCriterionId) {
-                return { ...sub, score, feedback };
+                const normalizedScore = newSub ? Math.min(score, newSub.maxPoints) : score;
+                return { 
+                  ...sub, 
+                  score: normalizedScore,
+                  maxPoints: newSub?.maxPoints || sub.maxPoints,
+                  feedback 
+                };
               }
-              return sub;
+              return {
+                ...sub,
+                maxPoints: newSub?.maxPoints || sub.maxPoints,
+                score: Math.min(sub.score, newSub?.maxPoints || sub.maxPoints)
+              };
             })
           };
         }
-        return criterion;
+        return {
+          ...criterion,
+          maxPoints: newCriterion?.maxPoints || criterion.maxPoints,
+          subCriteria: criterion.subCriteria.map(sub => {
+            const newSub = newCriterion?.subCriteria.find(s => s.id === sub.id);
+            return {
+              ...sub,
+              maxPoints: newSub?.maxPoints || sub.maxPoints,
+              score: Math.min(sub.score, newSub?.maxPoints || sub.maxPoints)
+            };
+          })
+        };
       })
     };
 

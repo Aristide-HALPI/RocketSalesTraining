@@ -5,8 +5,6 @@ import { certificationService, type CertificationData } from '../features/certif
 import { toast } from 'react-hot-toast';
 
 export default function Certification() {
-  console.log('Component Certification rendered');
-  
   const { userId } = useParams<{ userId: string }>();
   const { currentUser, userProfile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -22,57 +20,32 @@ export default function Certification() {
     }
   }, [userId, currentUser?.uid, navigate, loading]);
 
-  console.log('Current state:', { userId, currentUser, certificationData, comment, isTrainer, loading, authLoading });
-
   useEffect(() => {
-    console.log('useEffect triggered with:', { userId, userRole: userProfile?.role });
-    
     const fetchData = async () => {
-      if (!userId) {
-        console.log('No userId, skipping fetch');
-        return;
-      }
+      if (!userId) return;
 
       try {
-        console.log('Starting data fetch for user:', userId);
-        
         setIsTrainer(userProfile?.role === 'trainer');
-        console.log('Is trainer:', userProfile?.role === 'trainer');
 
-        // Récupérer d'abord les données existantes
-        console.log('Fetching existing certification data');
-        const existingData = await certificationService.getCertificationData(userId);
-        console.log('Existing certification data:', existingData);
-        
-        if (existingData.status !== 'completed') {
-          console.log('Status not completed, calculating scores');
-          const updatedData = await certificationService.calculateAndUpdateScores(userId);
-          console.log('Updated certification data:', updatedData);
-          
-          setCertificationData(updatedData);
-          setComment(updatedData.trainerComment || '');
-        } else {
-          console.log('Status completed, using existing data');
-          setCertificationData(existingData);
-          setComment(existingData.trainerComment || '');
-        }
+        // Forcer le recalcul des scores à chaque fois
+        const updatedData = await certificationService.calculateAndUpdateScores(userId);
+        setCertificationData(updatedData);
+        setComment(updatedData.trainerComment || '');
       } catch (error) {
         console.error('Error fetching data:', error);
         toast.error('Erreur lors du chargement des données');
       } finally {
-        console.log('Setting loading to false');
         setLoading(false);
       }
     };
 
     fetchData();
-  }, [userId, userProfile?.role]); // Dépendre uniquement de userId et userProfile.role
+  }, [userId, userProfile?.role]);
 
   const handleCommentSubmit = async () => {
     if (!userId) return;
 
     try {
-      console.log('Saving comment:', comment);
       await certificationService.updateTrainerComment(userId, comment);
       toast.success('Commentaire sauvegardé');
     } catch (error) {
@@ -82,7 +55,6 @@ export default function Certification() {
   };
 
   if (loading || authLoading) {
-    console.log('Showing loading spinner:', { loading, authLoading });
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div>
@@ -90,12 +62,15 @@ export default function Certification() {
     );
   }
 
-  const formatPercentage = (score: number, maxScore: number) => {
-    if (maxScore === 0) return 'NaN%';
-    return `${((score / maxScore) * 100).toFixed(2)}%`;
+  const formatScore = (score: number | undefined | null): string => {
+    if (score === undefined || score === null) return '0.00';
+    return score.toFixed(2);
   };
 
-  console.log('Rendering certification page with data:', certificationData);
+  const formatPercentage = (score: number | undefined | null, maxScore: number): string => {
+    if (!score || maxScore === 0) return '0.00%';
+    return `${((score / maxScore) * 100).toFixed(2)}%`;
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
@@ -121,13 +96,13 @@ export default function Certification() {
                 Votre score total pour les exercices en ligne est de
               </div>
               <div className="text-center bg-green-100 p-2 rounded">
-                {certificationData?.onlineExercisesScore.toFixed(2) || '0.00'}
+                {formatScore(certificationData?.onlineExercisesScore)}
               </div>
               <div className="text-center bg-blue-100 p-2 rounded">
                 490
               </div>
               <div className="text-center bg-pink-100 p-2 rounded">
-                {formatPercentage(certificationData?.onlineExercisesScore || 0, 490)}
+                {formatPercentage(certificationData?.onlineExercisesScore, 490)}
               </div>
             </div>
 
@@ -137,11 +112,11 @@ export default function Certification() {
                 Votre score total pour l'examen final
               </div>
               <div className="text-center bg-green-100 p-2 rounded">
-                {certificationData?.finalExamScore.toFixed(2) || '0.00'}
+                {formatScore(certificationData?.finalExamScore)}
               </div>
               <div className="text-center bg-blue-100 p-2 rounded">680</div>
               <div className="text-center bg-pink-100 p-2 rounded">
-                {formatPercentage(certificationData?.finalExamScore || 0, 680)}
+                {formatPercentage(certificationData?.finalExamScore, 680)}
               </div>
             </div>
 
@@ -151,11 +126,11 @@ export default function Certification() {
                 Votre score final est de
               </div>
               <div className="text-center bg-green-100 p-2 rounded">
-                {certificationData?.totalScore.toFixed(2) || '0.00'}
+                {formatScore(certificationData?.totalScore)}
               </div>
               <div className="text-center bg-blue-100 p-2 rounded">1170</div>
               <div className="text-center bg-pink-100 p-2 rounded">
-                {formatPercentage(certificationData?.totalScore || 0, 1170)}
+                {formatPercentage(certificationData?.totalScore, 1170)}
               </div>
             </div>
           </div>

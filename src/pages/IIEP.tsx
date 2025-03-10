@@ -11,6 +11,7 @@ export default function IIEP() {
   const searchParams = new URLSearchParams(location.search);
   const studentId = searchParams.get('userId');
   const [exercise, setExercise] = useState<IIEPExercise | null>(null);
+  const [localExercise, setLocalExercise] = useState<IIEPExercise | null>(null);
   const [loading, setLoading] = useState(false);
   const [localFeedbacks, setLocalFeedbacks] = useState<{[key: string]: string}>({});
   const [localScores, setLocalScores] = useState<{[key: string]: number}>({});
@@ -19,6 +20,20 @@ export default function IIEP() {
   const isFormateur = userProfile?.role === 'trainer' || userProfile?.role === 'admin';
   const isViewMode = !!studentId;
   const targetUserId = studentId || currentUser?.uid;
+
+  const adjustTextareaHeight = (element: HTMLTextAreaElement) => {
+    element.style.height = 'auto';
+    element.style.height = element.scrollHeight + 'px';
+  };
+
+  useEffect(() => {
+    if (exercise) {
+      const textareas = document.querySelectorAll('textarea');
+      textareas.forEach(textarea => {
+        adjustTextareaHeight(textarea as HTMLTextAreaElement);
+      });
+    }
+  }, [exercise]);
 
   useEffect(() => {
     if (!targetUserId) return;
@@ -35,6 +50,7 @@ export default function IIEP() {
 
         if (exercise) {
           setExercise(exercise);
+          setLocalExercise(exercise);
           
           // Initialiser les feedbacks et scores locaux
           const feedbacks: {[key: string]: string} = {};
@@ -61,6 +77,7 @@ export default function IIEP() {
     // Souscrire aux mises à jour en temps réel
     const unsubscribe = iiepService.subscribeToExercise(targetUserId, (updatedExercise: IIEPExercise) => {
       setExercise(updatedExercise);
+      setLocalExercise(updatedExercise);
       
       // Mettre à jour les feedbacks et scores locaux
       const feedbacks: {[key: string]: string} = {};
@@ -89,6 +106,7 @@ export default function IIEP() {
 
     updatedExercise.sections[sectionIndex].dialogues[dialogueIndex].text = value;
     setExercise(updatedExercise);
+    setLocalExercise(updatedExercise);
 
     if (debouncedUpdate) {
       clearTimeout(debouncedUpdate);
@@ -115,6 +133,7 @@ export default function IIEP() {
 
     updatedExercise.sections[sectionIndex].dialogues[dialogueIndex].feedback = value;
     setExercise(updatedExercise);
+    setLocalExercise(updatedExercise);
 
     setDebouncedUpdate(
       setTimeout(async () => {
@@ -137,25 +156,27 @@ export default function IIEP() {
 
     updatedExercise.sections[sectionIndex].dialogues[dialogueIndex].score = value;
 
-    // Recalculer le score total avec la règle de trois
+    // Calculer le nouveau score total
     let totalPoints = 0;
     let maxPossiblePoints = 0;
     updatedExercise.sections.forEach(section => {
       section.dialogues.forEach(dialogue => {
         if (dialogue.type === 'commercial') {
           if (dialogue.score !== undefined) {
-            totalPoints += dialogue.score;
+            totalPoints += Number(dialogue.score);
           }
-          // Chaque dialogue commercial vaut 4 points maximum
+          // Chaque dialogue commercial vaut 4 points maximum (comme dans l'évaluation IA)
           maxPossiblePoints += 4;
         }
       });
     });
 
-    // Appliquer la règle de trois pour avoir un score sur 30
-    updatedExercise.totalScore = Math.round((totalPoints / maxPossiblePoints) * 30);
+    // Convertir le score sur 30 points (comme dans l'évaluation IA)
+    const finalScore = Math.round((totalPoints / maxPossiblePoints) * 30);
+    updatedExercise.totalScore = finalScore;
 
     setExercise(updatedExercise);
+    setLocalExercise(updatedExercise);
 
     setDebouncedUpdate(
       setTimeout(async () => {
@@ -173,6 +194,11 @@ export default function IIEP() {
       
       if (exercise) {
         setExercise({
+          ...exercise,
+          status: 'submitted',
+          submittedAt: new Date().toISOString()
+        });
+        setLocalExercise({
           ...exercise,
           status: 'submitted',
           submittedAt: new Date().toISOString()
@@ -206,6 +232,7 @@ export default function IIEP() {
       const updatedExercise = await iiepService.getExercise(targetUserId);
       if (updatedExercise) {
         setExercise(updatedExercise);
+        setLocalExercise(updatedExercise);
         
         // Mettre à jour les feedbacks et scores locaux
         const feedbacks: {[key: string]: string} = {};
@@ -320,10 +347,15 @@ export default function IIEP() {
                               <textarea
                                 className={`w-full p-3 rounded-md border-0 focus:ring-2 focus:ring-teal-500 ${
                                   dialogue.type === 'commercial' ? 'bg-blue-50' : 'bg-red-50'
-                                }`}
-                                rows={4}
+                                } resize-none overflow-hidden`}
+                                rows={1}
                                 value={dialogue.text}
-                                onChange={(e) => handleTextChange(section.id, dialogueIndex, e.target.value)}
+                                onChange={(e) => {
+                                  adjustTextareaHeight(e.target);
+                                  handleTextChange(section.id, dialogueIndex, e.target.value);
+                                }}
+                                onFocus={(e) => adjustTextareaHeight(e.target)}
+                                ref={(el) => el && adjustTextareaHeight(el)}
                                 disabled={!isFormateur ? (exercise.status === 'submitted' || exercise.status === 'evaluated' || isViewMode) : true}
                                 placeholder="Votre réponse..."
                               />
@@ -408,7 +440,7 @@ export default function IIEP() {
                     setLoading(false);
                   }
                 }}
-                disabled={loading || !exercise || exercise.status !== 'submitted'}
+                disabled={loading || !exercise || (exercise.status !== 'submitted' && exercise.status !== 'evaluated')}
               >
                 {loading ? 'Publication en cours...' : 'Publier les résultats'}
               </button>

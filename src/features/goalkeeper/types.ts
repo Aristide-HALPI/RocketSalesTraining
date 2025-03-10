@@ -39,18 +39,18 @@ export const GOALKEEPER_EVALUATION_CRITERIA: EvaluationCriterion[] = [
   {
     id: "askDecider",
     name: "Demande à parler au décideur",
-    maxPoints: 3,
+    maxPoints: 2,
     subCriteria: [
-      { id: "naming", name: "Mentionner le prénom, puis le prénom et nom du décideur", maxPoints: 3, score: 0, feedback: "" }
+      { id: "naming", name: "Mentionner le prénom, puis le prénom et nom du décideur", maxPoints: 2, score: 0, feedback: "" }
     ]
   },
   {
     id: "whoAreYou",
     name: "Réponse à \"Qui êtes-vous ?\"",
-    maxPoints: 5,
+    maxPoints: 4,
     subCriteria: [
       { id: "presentation", name: "Présentation concise avec prénom et nom uniquement", maxPoints: 2, score: 0, feedback: "" },
-      { id: "noCompany", name: "Absence de mention de la société", maxPoints: 2, score: 0, feedback: "" },
+      { id: "noCompany", name: "Absence de mention de la société", maxPoints: 1, score: 0, feedback: "" },
       { id: "noSales", name: "Aucune tentative de vente ou allusion commerciale", maxPoints: 1, score: 0, feedback: "" }
     ]
   },
@@ -65,18 +65,18 @@ export const GOALKEEPER_EVALUATION_CRITERIA: EvaluationCriterion[] = [
   {
     id: "whyCalling",
     name: "Réponse à \"Pourquoi appelez-vous ?\"",
-    maxPoints: 10,
+    maxPoints: 4,
     subCriteria: [
-      { id: "reason", name: "Donner une raison complexe et pertinente", maxPoints: 5, score: 0, feedback: "" },
-      { id: "noForbidden", name: "Éviter les termes commerciaux interdits", maxPoints: 5, score: 0, feedback: "" }
+      { id: "reason", name: "Donner une raison complexe et pertinente", maxPoints: 2, score: 0, feedback: "" },
+      { id: "noForbidden", name: "Éviter les termes commerciaux interdits", maxPoints: 2, score: 0, feedback: "" }
     ]
   },
   {
     id: "unavailable",
     name: "Gestion des indisponibilités du décideur",
-    maxPoints: 7,
+    maxPoints: 4,
     subCriteria: [
-      { id: "bestTime", name: "Si indisponible : demander le meilleur moment pour rappeler", maxPoints: 5, score: 0, feedback: "" },
+      { id: "bestTime", name: "Si indisponible : demander le meilleur moment pour rappeler", maxPoints: 2, score: 0, feedback: "" },
       { id: "precise", name: "Demander un jour et une heure précise si le créneaux donné par le goalkeeper est vague", maxPoints: 2, score: 0, feedback: "" }
     ]
   },
@@ -92,9 +92,9 @@ export const GOALKEEPER_EVALUATION_CRITERIA: EvaluationCriterion[] = [
   {
     id: "behavior",
     name: "Comportement du Goalkeeper",
-    maxPoints: 3,
+    maxPoints: 2,
     subCriteria: [
-      { id: "professionalism", name: "Le \"goalkeeper\" doit adopter une attitude professionnelle et cohérente", maxPoints: 3, score: 0, feedback: "" }
+      { id: "professionalism", name: "Le \"goalkeeper\" doit adopter une attitude professionnelle et cohérente", maxPoints: 2, score: 0, feedback: "" }
     ]
   }
 ];

@@ -54,7 +54,6 @@ export const certificationService = {
   },
 
   async calculateAndUpdateScores(userId: string): Promise<CertificationData> {
-    console.log('calculateAndUpdateScores called for userId:', userId);
     // Liste complète des exercices en ligne avec leurs scores maximums corrects
     const exercisePaths = [
       { path: 'eisenhower', maxScore: 30 },
@@ -71,17 +70,17 @@ export const certificationService = {
     ];
 
     let onlineExercisesScore = 0;
-    let maxOnlineScore = 490; // Score maximum total corrigé pour les exercices en ligne
+    let maxOnlineScore = 490; // Score maximum total pour les exercices en ligne
     let hasAnyScore = false;
 
-    console.log('Fetching scores from exercises:', exercisePaths);
+    // Récupérer et additionner les scores des exercices en ligne
     for (const exercise of exercisePaths) {
       const exerciseRef = doc(db, `users/${userId}/exercises/${exercise.path}`);
       const exerciseSnap = await getDoc(exerciseRef);
       const exerciseData = exerciseSnap.data();
       
-      if (exerciseData?.totalScore !== undefined) {
-        console.log(`Found score for ${exercise.path}:`, exerciseData.totalScore);
+      // Ne prendre en compte que les exercices publiés
+      if (exerciseData && exerciseData.status === 'published' && typeof exerciseData.totalScore === 'number') {
         // S'assurer que le score ne dépasse pas le maximum pour cet exercice
         const validScore = Math.min(exerciseData.totalScore, exercise.maxScore);
         onlineExercisesScore += validScore;
@@ -90,19 +89,21 @@ export const certificationService = {
     }
 
     // Récupérer le score de l'examen final (jeu de rôle)
-    console.log('Fetching final exam score');
     const finalExamRef = doc(db, `users/${userId}/exercises/points_role_final`);
     const finalExamSnap = await getDoc(finalExamRef);
     const finalExamData = finalExamSnap.data();
-    const finalExamScore = finalExamData?.totalScore || 0;
+    
+    // Ne prendre en compte que les examens publiés
+    let finalExamScore = 0;
+    if (finalExamData && finalExamData.status === 'published') {
+      finalExamScore = typeof finalExamData.totalScore === 'number' ? finalExamData.totalScore : 0;
+    }
+    
     const maxFinalExamScore = 680; // Score maximum pour l'examen final
     const validFinalExamScore = Math.min(finalExamScore, maxFinalExamScore);
-    console.log('Final exam score:', validFinalExamScore);
 
     // Calculer le score total (490 + 680 = 1170 points maximum)
     const totalScore = onlineExercisesScore + validFinalExamScore;
-    const maxTotalScore = maxOnlineScore + maxFinalExamScore;
-    console.log('Calculated total score:', totalScore, 'out of', maxTotalScore);
 
     // Mettre à jour les données de certification
     const certificationData: Partial<CertificationData> = {
@@ -113,14 +114,17 @@ export const certificationService = {
       status: hasAnyScore ? 'in_progress' : 'not_started'
     };
 
-    // Si tous les exercices ont un score et l'examen final aussi, marquer comme complété
-    if (hasAnyScore && finalExamScore > 0) {
-      certificationData.status = 'completed';
+    // Si au moins un exercice a été publié, marquer comme en cours
+    if (hasAnyScore) {
+      certificationData.status = 'in_progress';
+      // Si l'examen final est aussi publié, marquer comme complété
+      if (finalExamScore > 0) {
+        certificationData.status = 'completed';
+      }
     }
 
     const docRef = doc(db, `users/${userId}/exercises/certification`);
     await updateDoc(docRef, certificationData);
-    console.log('Certification data updated successfully');
 
     return {
       ...(await this.getCertificationData(userId)),

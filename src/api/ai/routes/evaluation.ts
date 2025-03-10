@@ -315,7 +315,7 @@ criteria_name | score | max_points | feedback`;
           const expectedAnswers = {
             'motivateurs': 5,
             'caracteristiques': 5,
-            'concepts': 3
+            'concepts': 2
           };
           if (section.answers.length !== expectedAnswers[section.id as keyof typeof expectedAnswers]) {
             throw new Error(`Invalid number of answers for section ${section.id}. Expected: ${expectedAnswers[section.id as keyof typeof expectedAnswers]}, Got: ${section.answers.length}`);

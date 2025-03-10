@@ -163,10 +163,25 @@ class RoleplayService {
   async updateExercise(userId: string, exerciseData: Partial<RoleplayExercise>) {
     try {
       const exerciseRef = this.getExerciseRef(userId);
+      
+      // Si on met à jour les sections, recalculer le score total
+      if (exerciseData.sections) {
+        let totalScore = 0;
+        exerciseData.sections.forEach(section => {
+          section.totalScore = section.items.reduce((sum, item) => sum + (item.score || 0), 0);
+          totalScore += section.totalScore;
+        });
+        exerciseData.totalScore = totalScore;
+      }
+
       await updateDoc(exerciseRef, {
         ...exerciseData,
         updatedAt: new Date().toISOString()
       });
+
+      // Mettre à jour les scores de certification après chaque mise à jour
+      const { certificationService } = await import('../../../features/certification/services/certificationService');
+      await certificationService.calculateAndUpdateScores(userId);
     } catch (error) {
       console.error('Error updating exercise:', error);
       throw error;

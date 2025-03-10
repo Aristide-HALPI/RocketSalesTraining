@@ -26,6 +26,7 @@ export interface Section {
   description: string;
   questions: Question[];
   trainerGeneralComment?: string;
+  evaluatedAt?: string;
 }
 
 export interface EombusPafiExercise {
@@ -33,7 +34,7 @@ export interface EombusPafiExercise {
   userId: string;
   type: 'eombus';
   sections: Section[];
-  status: 'not_started' | 'in_progress' | 'submitted' | 'evaluated' | 'published';
+  status: 'not_started' | 'in_progress' | 'submitted' | 'evaluated' | 'pending_validation' | 'published';
   createdAt: string;
   updatedAt: string;
   lastUpdated?: string;
@@ -136,27 +137,143 @@ function convertScoresToNumbers(exercise: any): EombusPafiExercise {
   };
 }
 
-// Fonction pour calculer le score total
-export const calculateTotalScore = (sections: Section[]): { totalScore: number; maxScore: number; finalScore: number } => {
-  let totalScore = 0;
-  const MAX_SCORE = 190; // Score maximum fixe : total des points maximum possibles
+// Points maximum par type de question
+const QUESTION_POINTS = {
+  ouverte: 4,
+  ouverte_importance: 4,
+  fermee: 2,
+  fermee_importance: 2
+} as const;
 
-  // Calculer le score total en additionnant tous les points
-  sections.forEach(section => {
-    section.questions.forEach(question => {
-      if (question.score) {
-        totalScore += question.score.points;
-      }
-    });
+// Points maximum par section selon le prompt de l'IA
+const SECTION_MAX_POINTS = {
+  entreprise: 42,    // 8*4 + 2*2 + 4 + 2
+  organisation: 30,  // 5*4 + 2*2 + 4 + 2
+  moyen: 22,        // 3*4 + 2*2 + 4 + 2
+  budgets: 22,      // 3*4 + 2*2 + 4 + 2
+  usages: 22,       // 3*4 + 2*2 + 4 + 2
+  situation: 46     // 8*4 + 2*2 + 4 + 2 + 2*2
+} as const;
+
+const TOTAL_MAX_POINTS = 184; // Somme des points maximum de toutes les sections
+
+// Types pour le score
+type SectionScore = {
+  id: string;
+  title: string;
+  points: number;
+  maxPoints: number;
+  score: number;
+  evaluatedAt?: string;
+  isFullyEvaluated: boolean;  // Si toutes les questions de la section ont une note
+};
+
+type TotalScore = {
+  sectionScores: SectionScore[];
+  evaluatedSections: number;
+  totalSections: number;
+  finalScore: number;
+  maxScore: number;  // Toujours 100
+  hasFullyEvaluatedSection: boolean;  // Si au moins une section est entièrement notée
+  evaluationProgress: string;         // Message sur la progression
+};
+
+// Fonction pour calculer le score d'une section
+const calculateSectionScore = (section: Section): SectionScore => {
+  let totalPoints = 0;
+  let answeredQuestions = 0;
+  const totalQuestions = section.questions.length;
+  
+  section.questions.forEach(question => {
+    if (question.score?.points !== undefined) {
+      totalPoints += question.score.points;
+      answeredQuestions++;
+    }
   });
 
-  // Calculer le score final sur 100 en utilisant une règle de trois
-  const finalScore = Math.round((totalScore / MAX_SCORE) * 100);
+  const maxPoints = SECTION_MAX_POINTS[section.id as keyof typeof SECTION_MAX_POINTS];
 
   return {
-    totalScore,
-    maxScore: MAX_SCORE,
-    finalScore
+    id: section.id,
+    title: section.title,
+    points: totalPoints,
+    maxPoints,
+    score: totalPoints,  // On garde le score brut, pas de pourcentage
+    evaluatedAt: section.evaluatedAt,
+    isFullyEvaluated: answeredQuestions === totalQuestions
+  };
+};
+
+// Fonction pour calculer le score total
+export const calculateTotalScore = (sections: Section[]): TotalScore => {
+  const totalSections = sections.length;
+  
+  // Ne calculer que pour les sections qui ont au moins une question notée
+  const evaluatedSections = sections.filter(section => 
+    section.questions.some(q => q.score?.points !== undefined)
+  );
+
+  if (evaluatedSections.length === 0) {
+    return {
+      sectionScores: [],
+      evaluatedSections: 0,
+      totalSections,
+      finalScore: 0,
+      maxScore: 100,
+      hasFullyEvaluatedSection: false,
+      evaluationProgress: "Aucune section n'a encore été évaluée"
+    };
+  }
+
+  // Calculer le score de chaque section évaluée
+  const sectionScores = evaluatedSections.map(section => calculateSectionScore(section));
+
+  // Vérifier si au moins une section est entièrement notée
+  const hasFullyEvaluatedSection = sectionScores.some(section => section.isFullyEvaluated);
+
+  // Le score final est la somme des points obtenus
+  const totalPoints = sectionScores.reduce((sum, section) => sum + section.score, 0);
+
+  // Convertir le score en pourcentage sur le total maximum possible (184 points)
+  const finalScore = Math.round((totalPoints / TOTAL_MAX_POINTS) * 100);
+
+  // Créer le message de progression
+  const progress = `${sectionScores.filter(s => s.isFullyEvaluated).length}/${totalSections} sections entièrement évaluées`;
+
+  console.log('Score calculation:', {
+    sectionScores,
+    evaluatedSections: evaluatedSections.length,
+    totalSections,
+    totalPoints,
+    maxPoints: TOTAL_MAX_POINTS,
+    finalScore,
+    hasFullyEvaluatedSection,
+    evaluationProgress: progress
+  });
+
+  return {
+    sectionScores,
+    evaluatedSections: evaluatedSections.length,
+    totalSections,
+    finalScore,
+    maxScore: 100, // Le score final est toujours sur 100
+    hasFullyEvaluatedSection,
+    evaluationProgress: progress
+  };
+};
+
+// Fonction pour mettre à jour une question avec un nouveau score
+export const updateQuestionScore = (question: Question, points: number): Question => {
+  const maxPoints = QUESTION_POINTS[question.type];
+  const validPoints = Math.min(points, maxPoints); // S'assurer que les points ne dépassent pas le maximum
+
+  return {
+    ...question,
+    score: {
+      points: validPoints,
+      maxPoints,
+      percentage: (validPoints / maxPoints) * 100
+    }
   };
 };
 
@@ -205,13 +322,13 @@ export const eombusPafiService = {
   async submitExercise(userId: string) {
     const exercise = await this.getExercise(userId);
 
-    // Vérifier si l'exercice est vide
-    const isExerciseEmpty = exercise.sections.every(section =>
-      section.questions.every(question => !question.text.trim())
+    // Vérifier si toutes les questions sont remplies
+    const hasEmptyQuestions = exercise.sections.some(section =>
+      section.questions.some(question => !question.text.trim())
     );
 
-    if (isExerciseEmpty) {
-      throw new Error('L\'exercice ne peut pas être soumis car il est vide');
+    if (hasEmptyQuestions) {
+      throw new Error('Toutes les questions doivent être remplies avant de soumettre l\'exercice');
     }
 
     await this.updateExercise(userId, {
@@ -261,14 +378,27 @@ export const eombusPafiService = {
         botId: 'default'
       }) as EombusEvaluationResponse;
 
+      console.log('AI Evaluation Response:', evaluation);
+
       const updatedSections = [...exercise.sections];
       
-      // Grouper les réponses par section
+      // Map des titres de sections vers leurs IDs
+      const sectionTitleToId: Record<string, string> = {
+        'Entreprise': 'entreprise',
+        'Organisation': 'organisation',
+        'Moyens': 'moyen',
+        'Budget': 'budgets',
+        'Usages': 'usages',
+        'Situation': 'situation'
+      };
+
+      // Grouper les réponses par section en utilisant l'ID de section
       const responsesBySection = evaluation.responses.reduce((acc, response) => {
-        if (!acc[response.section]) {
-          acc[response.section] = [];
+        const sectionId = sectionTitleToId[response.section];
+        if (!acc[sectionId]) {
+          acc[sectionId] = [];
         }
-        acc[response.section].push(response);
+        acc[sectionId].push(response);
         return acc;
       }, {} as Record<string, typeof evaluation.responses>);
 
@@ -277,8 +407,13 @@ export const eombusPafiService = {
         const section = updatedSections[i];
         if (!section) continue;
 
-        const sectionResponses = responsesBySection[section.title];
-        if (!sectionResponses) continue;
+        const sectionResponses = responsesBySection[section.id];
+        if (!sectionResponses) {
+          console.log('No responses found for section:', section.id);
+          continue;
+        }
+
+        console.log(`Processing section ${section.id} with ${sectionResponses.length} responses`);
 
         // Filtrer les questions qui ont du contenu
         const answeredQuestions = section.questions
@@ -291,31 +426,28 @@ export const eombusPafiService = {
           const answeredQuestion = answeredQuestions[responseIndex];
           if (answeredQuestion) {
             // Mettre à jour la question originale avec le bon index
-            section.questions[answeredQuestion.index] = {
-              ...answeredQuestion,
-              score: {
-                points: response.score,
-                maxPoints: response.maxPoints,
-                percentage: (response.score / response.maxPoints) * 100
-              },
-              feedback: response.comment,
-              trainerComment: response.comment
-            };
+            section.questions[answeredQuestion.index] = updateQuestionScore(answeredQuestion, response.score);
+            section.questions[answeredQuestion.index].feedback = response.comment;
+            section.questions[answeredQuestion.index].trainerComment = response.comment;
           }
         });
+
+        // Marquer la section comme évaluée
+        section.evaluatedAt = new Date().toISOString();
       }
 
-      // Calculer le score total
+      const score = calculateTotalScore(updatedSections);
+
+      console.log('AI score calculation:', score);
+
       const updates: Partial<EombusPafiExercise> = {
         sections: updatedSections,
-        status: 'evaluated',
-        evaluatedAt: new Date().toISOString()
+        status: 'evaluated', // On passe en évalué dès qu'une section est entièrement notée
+        evaluatedAt: new Date().toISOString(),
+        totalScore: score.finalScore,
+        maxScore: 100,
+        aiEvaluation: evaluation
       };
-
-      // Calculer le score total après chaque évaluation
-      const { finalScore, maxScore } = calculateTotalScore(updatedSections);
-      updates.totalScore = finalScore;
-      updates.maxScore = maxScore;
 
       await updateDoc(exerciseRef, cleanUndefined(updates));
 
@@ -329,15 +461,27 @@ export const eombusPafiService = {
     const exerciseRef = doc(db, `users/${userId}/exercises/eombus`);
 
     try {
-      const { finalScore, maxScore } = calculateTotalScore(sections);
+      // Mettre à jour les scores des questions avec les points maximum
+      const updatedSections = sections.map(section => ({
+        ...section,
+        questions: section.questions.map(question => {
+          if (question.score?.points !== undefined) {
+            return updateQuestionScore(question, question.score.points);
+          }
+          return question;
+        }),
+        evaluatedAt: new Date().toISOString() // Marquer la section comme évaluée
+      }));
+
+      const score = calculateTotalScore(updatedSections);
 
       await updateDoc(exerciseRef, {
-        sections,
-        status: 'evaluated',
+        sections: updatedSections,
+        status: 'evaluated', // On passe en évalué dès qu'une section est entièrement notée
         evaluatedAt: new Date().toISOString(),
         evaluatedBy: evaluatorId,
-        totalScore: finalScore,
-        maxScore
+        totalScore: score.finalScore,
+        maxScore: 100
       });
     } catch (error) {
       console.error('Error during manual evaluation:', error);
@@ -355,5 +499,20 @@ export const eombusPafiService = {
       status: 'published',
       publishedAt: new Date().toISOString()
     });
+  },
+
+  async resetExercise(userId: string): Promise<void> {
+    const exerciseRef = doc(db, `users/${userId}/exercises/eombus`);
+    const newExercise: EombusPafiExercise = {
+      id: 'eombus',
+      userId,
+      type: 'eombus',
+      status: 'not_started',
+      sections: INITIAL_SECTIONS,
+      maxScore: INITIAL_SECTIONS.reduce((total, section) => total + section.questions.length * 100, 0),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    await setDoc(exerciseRef, cleanUndefined(newExercise));
   },
 };

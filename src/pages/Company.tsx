@@ -110,6 +110,7 @@ const Company = () => {
       <ExerciseTemplate
         title="Présentation de votre société"
         description=""
+        maxScore={20}
       >
         <div className="p-4">Chargement de l'exercice...</div>
       </ExerciseTemplate>
@@ -120,6 +121,7 @@ const Company = () => {
     <ExerciseTemplate
       title="Présentation de votre société"
       description=""
+      maxScore={20}
     >
       <div className="w-full">
         <div className="bg-emerald-800 text-white p-4 rounded-lg">

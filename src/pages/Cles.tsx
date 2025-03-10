@@ -1,45 +1,40 @@
 import { useEffect, useState, useCallback, memo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { troisClesService, type TroisClesExercise } from '../features/trois-cles/services/troisClesService';
+import { 
+  troisClesService, 
+  type TroisClesExercise,
+  type Score
+} from '../features/trois-cles/services/troisClesService';
 import { Textarea } from '../components/ui/textarea';
 import { Button } from '../components/ui/button';
-import { ExerciseTemplate } from '../components/ExerciseTemplate';
+
+// Types pour les évaluations locales
+interface LocalEvaluation {
+  score: Score;
+  comment: string;
+}
+
+interface LocalEvaluations {
+  [key: string]: LocalEvaluation;
+}
 
 // Composant séparé pour ScoreAndComment
 const ScoreAndCommentComponent = memo(({ 
-  type, 
-  index, 
-  subType = null, 
-  initialScore = 0,
+  initialScore = 0 as Score,
   initialComment = '',
   disabled,
   onScoreChange,
   onCommentChange
 }: {
-  type: string;
-  index: number;
-  subType: string | null;
-  initialScore?: number;
+  initialScore?: Score;
   initialComment?: string;
   disabled?: boolean;
-  onScoreChange: (score: number) => void;
+  onScoreChange: (score: Score) => void;
   onCommentChange: (comment: string) => void;
 }) => {
-  const [score, setScore] = useState(initialScore);
+  const [score, setScore] = useState<Score>(initialScore);
   const [comment, setComment] = useState(initialComment);
-
-  const handleScoreChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newScore = Number(e.target.value);
-    setScore(newScore);
-    onScoreChange(newScore);
-  };
-
-  const handleCommentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newComment = e.target.value;
-    setComment(newComment);
-    onCommentChange(newComment);
-  };
 
   // Mettre à jour l'état local si les props changent
   useEffect(() => {
@@ -48,34 +43,33 @@ const ScoreAndCommentComponent = memo(({
   }, [initialScore, initialComment]);
 
   return (
-    <div className="mt-2 pt-2 border-t border-gray-200">
-      <div className="flex items-center space-x-4">
-        <div className="flex items-center space-x-2">
-          <label className="text-sm text-gray-600">Note :</label>
-          <select
-            value={score}
-            onChange={handleScoreChange}
-            className="border border-gray-300 rounded px-2 py-1 text-sm"
-            disabled={disabled}
-          >
-            <option value={0}>0</option>
-            <option value={1}>1</option>
-            <option value={2}>2</option>
-          </select>
-          <span className="text-sm text-gray-500">/2</span>
-        </div>
-      </div>
-      <div className="mt-2">
-        <label className="text-sm text-gray-600">Commentaire formateur :</label>
-        <textarea
-          value={comment}
-          onChange={handleCommentChange}
-          className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm resize-vertical"
-          rows={2}
-          placeholder="Ajouter un commentaire..."
+    <div className="mt-2 space-y-2">
+      <div className="flex items-center space-x-2">
+        <select
+          value={score}
+          onChange={(e) => {
+            const newScore = parseInt(e.target.value) as Score;
+            setScore(newScore);
+            onScoreChange(newScore);
+          }}
+          className="block w-24 px-3 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white text-gray-900"
           disabled={disabled}
-        />
+        >
+          <option value={0}>0</option>
+          <option value={1}>1</option>
+        </select>
       </div>
+      <textarea
+        value={comment}
+        onChange={(e) => {
+          setComment(e.target.value);
+          onCommentChange(e.target.value);
+        }}
+        placeholder="Commentaire..."
+        className="w-full px-3 py-2 rounded-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900"
+        rows={2}
+        disabled={disabled}
+      />
     </div>
   );
 });
@@ -87,12 +81,16 @@ export default function Cles() {
   const { currentUser, userProfile } = useAuth();
   const [exercise, setExercise] = useState<TroisClesExercise | null>(null);
   const [loading, setLoading] = useState(true);
-  const [localEvaluations, setLocalEvaluations] = useState<{
-    [key: string]: {
-      score: number;
-      comment: string;
-    }
-  }>({});
+  const [localEvaluations, setLocalEvaluations] = useState<LocalEvaluations>({});
+  const [loadingAI, setLoadingAI] = useState<{
+    explicite: boolean;
+    evocatrice: boolean;
+    projective: boolean;
+  }>({
+    explicite: false,
+    evocatrice: false,
+    projective: false,
+  });
 
   const targetUserId = searchParams.get('userId') || currentUser?.uid || '';
   const isTrainer = userProfile?.role === 'trainer';
@@ -102,8 +100,8 @@ export default function Cles() {
     return exercise?.status === 'submitted' || exercise?.status === 'evaluated';
   };
 
-  const isEvaluated = () => {
-    return exercise?.status === 'evaluated';
+  const canEvaluateWithAI = () => {
+    return (isTrainer || isAdmin) && exercise?.status === 'submitted';
   };
 
   useEffect(() => {
@@ -111,6 +109,7 @@ export default function Cles() {
       try {
         const loadedExercise = await troisClesService.getExercise(targetUserId);
         console.log('Loaded exercise:', loadedExercise);
+        console.log('Exercise status:', loadedExercise?.status);
         console.log('Exercise sections:', loadedExercise?.sections);
         console.log('Questions projectives:', loadedExercise?.sections?.[4]?.questionsProjectives);
         setExercise(loadedExercise);
@@ -139,25 +138,22 @@ export default function Cles() {
     }
   }, [localEvaluations, targetUserId]);
 
-  const handleScoreChange = useCallback((key: string, score: number) => {
-    setLocalEvaluations(prev => ({
-      ...prev,
-      [key]: {
-        ...prev[key],
-        score
+  const handleSubmit = async () => {
+    if (!exercise) return;
+    try {
+      await troisClesService.submitExercise(exercise.id);
+      const updatedExercise = await troisClesService.getExercise(exercise.id);
+      console.log('Exercise after submit:', updatedExercise);
+      setExercise(updatedExercise);
+    } catch (error) {
+      console.error('Erreur lors de la soumission:', error);
+      if (error instanceof Error) {
+        alert(error.message);
+      } else {
+        alert('Une erreur est survenue lors de la soumission');
       }
-    }));
-  }, []);
-
-  const handleCommentChange = useCallback((key: string, comment: string) => {
-    setLocalEvaluations(prev => ({
-      ...prev,
-      [key]: {
-        ...prev[key],
-        comment
-      }
-    }));
-  }, []);
+    }
+  };
 
   const handlePublishEvaluation = useCallback(async () => {
     if (!exercise) return;
@@ -168,27 +164,77 @@ export default function Cles() {
       const [type, index, subType] = key.split('-');
       const idx = Number(index);
 
-      if (type === 'explicite') {
-        updatedExercise.sections[0].questionsExplicites[idx].score = evaluation.score;
-        updatedExercise.sections[0].questionsExplicites[idx].trainerComment = evaluation.comment;
-      } else if (type === 'evocatrice') {
-        const question = updatedExercise.sections[1].questionsEvocatrices[idx];
-        if (subType === 'passe') {
-          question.scoresPasse = evaluation.score;
-          question.commentPasse = evaluation.comment;
-        } else if (subType === 'present') {
-          question.scoresPresent = evaluation.score;
-          question.commentPresent = evaluation.comment;
-        } else if (subType === 'futur') {
-          question.scoresFutur = evaluation.score;
-          question.commentFutur = evaluation.comment;
+      if (type === 'explicite' && updatedExercise.sections[0]?.questionsExplicites) {
+        const question = updatedExercise.sections[0].questionsExplicites[idx];
+        if (question) {
+          question.score = evaluation.score;
+          question.trainerComment = evaluation.comment;
         }
-      } else if (type === 'impacts') {
+      } else if (type === 'evocatrice' && updatedExercise.sections[1]?.questionsEvocatrices) {
+        const question = updatedExercise.sections[1].questionsEvocatrices[idx];
+        if (question) {
+          if (subType === 'passe') {
+            question.scoresPasse = evaluation.score;
+            question.commentPasse = evaluation.comment;
+          } else if (subType === 'present') {
+            question.scoresPresent = evaluation.score;
+            question.commentPresent = evaluation.comment;
+          } else if (subType === 'futur') {
+            question.scoresFutur = evaluation.score;
+            question.commentFutur = evaluation.comment;
+          }
+        }
+      } else if (type === 'impacts' && updatedExercise.sections[2]?.impactsTemporels) {
         updatedExercise.sections[2].impactsTemporels.score = evaluation.score;
         updatedExercise.sections[2].impactsTemporels.trainerComment = evaluation.comment;
-      } else if (type === 'besoins') {
+      } else if (type === 'besoins' && updatedExercise.sections[3]?.besoinsSolution) {
         updatedExercise.sections[3].besoinsSolution.score = evaluation.score;
         updatedExercise.sections[3].besoinsSolution.trainerComment = evaluation.comment;
+      } else if (type === 'projective' && updatedExercise.sections[4]?.questionsProjectives) {
+        const question = updatedExercise.sections[4].questionsProjectives[idx];
+        if (question) {
+          // Créer une copie avec les valeurs par défaut
+          const updatedQuestion = {
+            ...question,
+            scores: {
+              question: 0 as Score,
+              reponseClient: 0 as Score,
+              confirmation: 0 as Score,
+              impacts: 0 as Score,
+              besoinSolution: 0 as Score,
+              ...(question.scores || {})
+            },
+            comments: {
+              question: '',
+              reponseClient: '',
+              confirmation: '',
+              impacts: '',
+              besoinSolution: '',
+              ...(question.comments || {})
+            }
+          };
+
+          const { score, comment } = evaluation;
+          
+          if (subType === 'question') {
+            updatedQuestion.scores.question = score;
+            updatedQuestion.comments.question = comment;
+          } else if (subType === 'reponseClient') {
+            updatedQuestion.scores.reponseClient = score;
+            updatedQuestion.comments.reponseClient = comment;
+          } else if (subType === 'confirmation') {
+            updatedQuestion.scores.confirmation = score;
+            updatedQuestion.comments.confirmation = comment;
+          } else if (subType === 'impacts') {
+            updatedQuestion.scores.impacts = score;
+            updatedQuestion.comments.impacts = comment;
+          } else if (subType === 'besoinSolution') {
+            updatedQuestion.scores.besoinSolution = score;
+            updatedQuestion.comments.besoinSolution = comment;
+          }
+          
+          updatedExercise.sections[4].questionsProjectives[idx] = updatedQuestion;
+        }
       }
     });
 
@@ -201,43 +247,265 @@ export default function Cles() {
     }
   }, [exercise, localEvaluations, targetUserId]);
 
+  const handleAIEvaluation = async (sectionType: 'explicite' | 'evocatrice' | 'projective') => {
+    if (!exercise) return;
+    
+    try {
+      setLoadingAI(prev => ({ ...prev, [sectionType]: true }));
+      
+      // Créer une version modifiée de l'exercice avec uniquement la section demandée
+      const evaluationExercise = { ...exercise };
+      
+      // Filtrer les sections en fonction du type
+      switch (sectionType) {
+        case 'explicite':
+          evaluationExercise.sections = [exercise.sections[0]];
+          break;
+        case 'evocatrice':
+          evaluationExercise.sections = [exercise.sections[1]];
+          break;
+        case 'projective':
+          evaluationExercise.sections = [exercise.sections[4]];
+          break;
+      }
+
+      // Appeler le service d'évaluation avec la section filtrée
+      await troisClesService.evaluateWithAI(targetUserId, evaluationExercise);
+      
+      // Recharger l'exercice pour obtenir les résultats de l'évaluation
+      const updatedExercise = await troisClesService.getExercise(targetUserId);
+      setExercise(updatedExercise);
+    } catch (error) {
+      console.error('Erreur lors de l\'évaluation IA:', error);
+      alert('Une erreur est survenue lors de l\'évaluation par l\'IA');
+    } finally {
+      setLoadingAI(prev => ({ ...prev, [sectionType]: false }));
+    }
+  };
+
   const isAnswerDisabled = useCallback(() => {
     if (!exercise) return true;
-    if (isTrainer || isAdmin) return true;
+    if (isTrainer || isAdmin) return true;  // Les formateurs et admins ne peuvent pas modifier les réponses
     return isSubmitted();
   }, [exercise, isTrainer, isAdmin]);
 
   const isEvaluationDisabled = useCallback(() => {
     if (!exercise) return true;
-    if (!isTrainer && !isAdmin) return true;
-    return isEvaluated();
+    return !(isTrainer || isAdmin);  // Les formateurs et admins peuvent toujours évaluer
   }, [exercise, isTrainer, isAdmin]);
 
-  const renderScoreAndComment = useCallback((type: string, index: number, subType: string | null = null, initialScore = 0, initialComment = '') => {
-    if (!isTrainer && !isAdmin) return null;
+  const canSubmit = useCallback(() => {
+    if (!exercise) return false;
+    if (isSubmitted()) return false;
+    
+    // Vérifier si au moins une réponse a été donnée dans chaque section
+    const hasExplicites = exercise.sections[0]?.questionsExplicites?.some(q => q.text?.trim());
+    const hasEvocatrices = exercise.sections[1]?.questionsEvocatrices?.some(q => 
+      q.passe?.trim() || q.present?.trim() || q.futur?.trim()
+    );
+    const hasImpacts = exercise.sections[2]?.impactsTemporels?.text?.trim();
+    const hasBesoins = exercise.sections[3]?.besoinsSolution?.text?.trim();
+    const hasProjectives = exercise.sections[4]?.questionsProjectives?.some(q => 
+      q.question?.trim() || q.reponseClient?.trim() || q.confirmation?.trim() || 
+      q.impacts?.trim() || q.besoinSolution?.trim()
+    );
 
-    const key = `${type}-${index}-${subType}`;
-    const evaluation = localEvaluations[key] || { score: initialScore, comment: initialComment };
+    return !!(hasExplicites || hasEvocatrices || hasImpacts || hasBesoins || hasProjectives);
+  }, [exercise]);
+
+  const initializeQuestionProjective = (question: any): any => {
+    const initializedQuestion = {
+      ...question,
+      question: question.question || '',
+      reponseClient: question.reponseClient || '',
+      confirmation: question.confirmation || '',
+      impacts: question.impacts || '',
+      besoinSolution: question.besoinSolution || '',
+      scores: {
+        question: 0 as Score,
+        reponseClient: 0 as Score,
+        confirmation: 0 as Score,
+        impacts: 0 as Score,
+        besoinSolution: 0 as Score,
+        ...(question.scores || {})
+      },
+      comments: {
+        question: '',
+        reponseClient: '',
+        confirmation: '',
+        impacts: '',
+        besoinSolution: '',
+        ...(question.comments || {})
+      }
+    };
+    return initializedQuestion;
+  };
+
+  const handleQuestionProjectiveChange = (index: number, field: string, value: string) => {
+    if (!exercise) return;
+
+    const newExercise = { ...exercise };
+    const section = newExercise.sections[4] || {
+      id: 'questions_projectives',
+      title: 'Questions Projectives',
+      description: 'Questions projectives pour explorer les possibilités',
+      questionsProjectives: []
+    };
+    
+    if (!section.questionsProjectives) {
+      section.questionsProjectives = [];
+    }
+
+    const emptyQuestion: any = {
+      question: '',
+      reponseClient: '',
+      confirmation: '',
+      impacts: '',
+      besoinSolution: '',
+      scores: {
+        question: 0 as Score,
+        reponseClient: 0 as Score,
+        confirmation: 0 as Score,
+        impacts: 0 as Score,
+        besoinSolution: 0 as Score
+      },
+      comments: {
+        question: '',
+        reponseClient: '',
+        confirmation: '',
+        impacts: '',
+        besoinSolution: ''
+      }
+    };
+
+    if (!section.questionsProjectives[index]) {
+      section.questionsProjectives[index] = emptyQuestion;
+    }
+
+    const question = initializeQuestionProjective(section.questionsProjectives[index]);
+    question[field] = value;
+    section.questionsProjectives[index] = question;
+    newExercise.sections[4] = section;
+
+    updateExerciseAndStatus(newExercise);
+  };
+
+  const updateExerciseAndStatus = useCallback(async (updatedExercise: TroisClesExercise | null) => {
+    if (!updatedExercise) return;
+    
+    // Mettre à jour le statut en fonction du contenu
+    const hasContent = updatedExercise.sections.some(section => {
+      const hasExplicites = section.questionsExplicites?.some(q => q.text?.trim());
+      const hasEvocatrices = section.questionsEvocatrices?.some(q => 
+        q.passe?.trim() || q.present?.trim() || q.futur?.trim()
+      );
+      const hasImpacts = section.impactsTemporels?.text?.trim();
+      const hasBesoins = section.besoinsSolution?.text?.trim();
+      const hasProjectives = section.questionsProjectives?.some(q => 
+        q.question?.trim() || q.reponseClient?.trim() || q.confirmation?.trim() || 
+        q.impacts?.trim() || q.besoinSolution?.trim()
+      );
+      return !!(hasExplicites || hasEvocatrices || hasImpacts || hasBesoins || hasProjectives);
+    });
+
+    const newStatus = hasContent ? 'in_progress' : 'not_started';
+    if (updatedExercise.status !== 'submitted' && updatedExercise.status !== 'evaluated') {
+      updatedExercise.status = newStatus;
+    }
+    
+    setExercise(updatedExercise);
+    
+    try {
+      await troisClesService.updateExercise(updatedExercise.id, updatedExercise);
+    } catch (error) {
+      console.error('Erreur lors de la mise à jour de l\'exercice:', error);
+    }
+  }, []);
+
+  const updateLocalEvaluations = useCallback((type: string, index: number, subType: string | null, evaluation: LocalEvaluation) => {
+    const key = `${type}_${index}${subType ? `_${subType}` : ''}`;
+    setLocalEvaluations(prev => ({
+      ...prev,
+      [key]: evaluation
+    }));
+
+    if (!exercise) return;
+    
+    const updatedExercise = { ...exercise };
+    if (type === 'projective' && updatedExercise?.sections?.[4]?.questionsProjectives) {
+      const idx = parseInt(index.toString());
+      if (!isNaN(idx)) {
+        const question = updatedExercise.sections[4].questionsProjectives[idx];
+        if (question) {
+          // Créer une copie avec les valeurs par défaut
+          const updatedQuestion = {
+            ...question,
+            scores: {
+              question: 0 as Score,
+              reponseClient: 0 as Score,
+              confirmation: 0 as Score,
+              impacts: 0 as Score,
+              besoinSolution: 0 as Score,
+              ...(question.scores || {})
+            },
+            comments: {
+              question: '',
+              reponseClient: '',
+              confirmation: '',
+              impacts: '',
+              besoinSolution: '',
+              ...(question.comments || {})
+            }
+          };
+
+          const { score, comment } = evaluation;
+          
+          if (subType === 'question') {
+            updatedQuestion.scores.question = score;
+            updatedQuestion.comments.question = comment;
+          } else if (subType === 'reponseClient') {
+            updatedQuestion.scores.reponseClient = score;
+            updatedQuestion.comments.reponseClient = comment;
+          } else if (subType === 'confirmation') {
+            updatedQuestion.scores.confirmation = score;
+            updatedQuestion.comments.confirmation = comment;
+          } else if (subType === 'impacts') {
+            updatedQuestion.scores.impacts = score;
+            updatedQuestion.comments.impacts = comment;
+          } else if (subType === 'besoinSolution') {
+            updatedQuestion.scores.besoinSolution = score;
+            updatedQuestion.comments.besoinSolution = comment;
+          }
+          
+          updatedExercise.sections[4].questionsProjectives[idx] = updatedQuestion;
+        }
+      }
+    }
+    updateExerciseAndStatus(updatedExercise);
+  }, [exercise, updateExerciseAndStatus]);
+
+  const renderScoreAndComment = useCallback((type: string, index: number, subType: string | null, score: Score | undefined, comment: string | undefined) => {
+    if (!isTrainer && !isAdmin) return null;  // Ne pas afficher les contrôles d'évaluation pour les non-formateurs/non-admins
+
+    const key = `${type}_${index}${subType ? `_${subType}` : ''}`;
+    const evaluation = localEvaluations[key] || { score: score || 0 as Score, comment: comment || '' };
 
     return (
       <ScoreAndCommentComponent
         key={key}
-        type={type}
-        index={index}
-        subType={subType}
         initialScore={evaluation.score}
         initialComment={evaluation.comment}
         disabled={isEvaluationDisabled()}
-        onScoreChange={(score) => handleScoreChange(key, score)}
-        onCommentChange={(comment) => handleCommentChange(key, comment)}
+        onScoreChange={(newScore) => updateLocalEvaluations(type, index, subType, { ...evaluation, score: newScore })}
+        onCommentChange={(newComment) => updateLocalEvaluations(type, index, subType, { ...evaluation, comment: newComment })}
       />
     );
-  }, [isTrainer, isAdmin, localEvaluations, isEvaluationDisabled, handleScoreChange, handleCommentChange]);
+  }, [isTrainer, isAdmin, localEvaluations, isEvaluationDisabled, updateLocalEvaluations]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+        <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-500"></div>
       </div>
     );
   }
@@ -279,8 +547,20 @@ export default function Cles() {
             </div>
             <div className="bg-white/80 backdrop-blur rounded-lg p-4">
               <p className="text-sm text-gray-600">Statut de l'exercice</p>
-              <span className="px-2 py-1 text-sm font-semibold rounded">
-                {exercise?.status === 'not_started' ? 'À débuter' : exercise?.status === 'in_progress' ? 'En cours' : exercise?.status === 'submitted' ? 'Soumis' : exercise?.status === 'evaluated' ? 'Évalué' : 'À débuter'}
+              <span className={`px-2 py-1 text-sm font-semibold rounded ${
+                exercise?.status === 'not_started' ? 'bg-gray-100 text-gray-600' :
+                exercise?.status === 'in_progress' ? 'bg-yellow-100 text-yellow-600' :
+                exercise?.status === 'submitted' ? 'bg-blue-100 text-blue-600' :
+                exercise?.status === 'evaluated' ? 'bg-green-100 text-green-600' :
+                exercise?.status === 'pending_validation' ? 'bg-blue-100 text-blue-600' :
+                'bg-gray-100 text-gray-600'
+              }`}>
+                {exercise?.status === 'not_started' ? 'À débuter' :
+                 exercise?.status === 'in_progress' ? 'En cours' :
+                 exercise?.status === 'submitted' ? 'Soumis' :
+                 exercise?.status === 'evaluated' ? 'Évalué' :
+                 exercise?.status === 'pending_validation' ? 'En attente de validation' :
+                 'À débuter'}
               </span>
             </div>
           </div>
@@ -289,15 +569,58 @@ export default function Cles() {
         {/* Mode Formateur */}
         {(isTrainer || isAdmin) && (
           <div className="bg-blue-50 shadow-sm rounded-lg p-4 mb-6">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col space-y-4">
               <h2 className="text-lg font-semibold text-gray-900">Mode Formateur</h2>
-              <Button
-                onClick={() => console.log('Correction avec l\'IA')}
-                className="bg-violet-600 text-white hover:bg-violet-700"
-                disabled={loading || exercise?.status !== 'submitted'}
-              >
-                Correction avec l'IA
-              </Button>
+              <div className="flex flex-wrap gap-4">
+                <Button
+                  onClick={() => handleAIEvaluation('explicite')}
+                  className="bg-violet-600 text-white hover:bg-violet-700 relative"
+                  disabled={loading || !canEvaluateWithAI() || loadingAI.explicite}
+                >
+                  {loadingAI.explicite ? (
+                    <>
+                      <span className="opacity-0">Évaluer Problèmes Explicites</span>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
+                      </div>
+                    </>
+                  ) : (
+                    'Évaluer Problèmes Explicites'
+                  )}
+                </Button>
+                <Button
+                  onClick={() => handleAIEvaluation('evocatrice')}
+                  className="bg-violet-600 text-white hover:bg-violet-700 relative"
+                  disabled={loading || !canEvaluateWithAI() || loadingAI.evocatrice}
+                >
+                  {loadingAI.evocatrice ? (
+                    <>
+                      <span className="opacity-0">Évaluer Questions Évocatrices</span>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
+                      </div>
+                    </>
+                  ) : (
+                    'Évaluer Questions Évocatrices'
+                  )}
+                </Button>
+                <Button
+                  onClick={() => handleAIEvaluation('projective')}
+                  className="bg-violet-600 text-white hover:bg-violet-700 relative"
+                  disabled={loading || !canEvaluateWithAI() || loadingAI.projective}
+                >
+                  {loadingAI.projective ? (
+                    <>
+                      <span className="opacity-0">Évaluer Questions Projectives</span>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
+                      </div>
+                    </>
+                  ) : (
+                    'Évaluer Questions Projectives'
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -321,7 +644,7 @@ export default function Cles() {
                     Question {index < 3 ? 'ouverte' : index < 5 ? 'fermée' : index === 5 ? "d'impacts" : 'de Besoin de Solution'}
                   </label>
                   <Textarea
-                    value={question.text}
+                    value={question.text || ''}
                     onChange={(e) => {
                       const newExercise = { ...exercise };
                       if (!newExercise.sections) {
@@ -339,12 +662,16 @@ export default function Cles() {
                         newExercise.sections[0].questionsExplicites = [];
                       }
                       if (!newExercise.sections[0].questionsExplicites[index]) {
-                        newExercise.sections[0].questionsExplicites[index] = {};
+                        newExercise.sections[0].questionsExplicites[index] = {
+                          text: '',
+                          score: 0 as Score,
+                          trainerComment: ''
+                        };
                       }
                       newExercise.sections[0].questionsExplicites[index].text = e.target.value;
-                      setExercise(newExercise);
+                      updateExerciseAndStatus(newExercise);
                     }}
-                    className="w-full min-h-[80px] resize-none"
+                    className={`w-full min-h-[80px] resize-none rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                     placeholder="Votre question..."
                     disabled={isAnswerDisabled()}
                   />
@@ -370,47 +697,140 @@ export default function Cles() {
                   <div>
                     <label className="block text-sm font-medium text-gray-600 mb-2">Passé</label>
                     <Textarea
-                      value={question.passe || ''}
+                      value={question?.passe || ''}
                       onChange={(e) => {
+                        if (!exercise) return;
                         const newExercise = { ...exercise };
+                        if (!newExercise.sections[1]) {
+                          newExercise.sections[1] = {
+                            id: 'questions_evocatrices',
+                            title: 'Questions Évocatrices',
+                            description: 'Questions pour évoquer les situations',
+                            questionsEvocatrices: []
+                          };
+                        }
+                        if (!newExercise.sections[1].questionsEvocatrices) {
+                          newExercise.sections[1].questionsEvocatrices = [];
+                        }
+                        if (!newExercise.sections[1].questionsEvocatrices[index]) {
+                          newExercise.sections[1].questionsEvocatrices[index] = {
+                            passe: '',
+                            present: '',
+                            futur: '',
+                            scoresPasse: 0 as Score,
+                            scoresPresent: 0 as Score,
+                            scoresFutur: 0 as Score,
+                            commentPasse: '',
+                            commentPresent: '',
+                            commentFutur: ''
+                          };
+                        }
                         newExercise.sections[1].questionsEvocatrices[index].passe = e.target.value;
-                        setExercise(newExercise);
+                        updateExerciseAndStatus(newExercise);
                       }}
-                      className="w-full min-h-[80px] resize-vertical"
+                      className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                       placeholder="Question sur le passé..."
                       disabled={isAnswerDisabled()}
                     />
-                    {renderScoreAndComment('evocatrice', index, 'passe', question.scoresPasse, question.commentPasse)}
+                    {renderScoreAndComment(
+                      'evocatrice',
+                      index,
+                      'passe',
+                      question?.scoresPasse || 0 as Score,
+                      question?.commentPasse || ''
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-600 mb-2">Présent</label>
                     <Textarea
-                      value={question.present || ''}
+                      value={question?.present || ''}
                       onChange={(e) => {
+                        if (!exercise) return;
                         const newExercise = { ...exercise };
+                        if (!newExercise.sections[1]) {
+                          newExercise.sections[1] = {
+                            id: 'questions_evocatrices',
+                            title: 'Questions Évocatrices',
+                            description: 'Questions pour évoquer les situations',
+                            questionsEvocatrices: []
+                          };
+                        }
+                        if (!newExercise.sections[1].questionsEvocatrices) {
+                          newExercise.sections[1].questionsEvocatrices = [];
+                        }
+                        if (!newExercise.sections[1].questionsEvocatrices[index]) {
+                          newExercise.sections[1].questionsEvocatrices[index] = {
+                            passe: '',
+                            present: '',
+                            futur: '',
+                            scoresPasse: 0 as Score,
+                            scoresPresent: 0 as Score,
+                            scoresFutur: 0 as Score,
+                            commentPasse: '',
+                            commentPresent: '',
+                            commentFutur: ''
+                          };
+                        }
                         newExercise.sections[1].questionsEvocatrices[index].present = e.target.value;
-                        setExercise(newExercise);
+                        updateExerciseAndStatus(newExercise);
                       }}
-                      className="w-full min-h-[80px] resize-vertical"
+                      className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                       placeholder="Question sur le présent..."
                       disabled={isAnswerDisabled()}
                     />
-                    {renderScoreAndComment('evocatrice', index, 'present', question.scoresPresent, question.commentPresent)}
+                    {renderScoreAndComment(
+                      'evocatrice',
+                      index,
+                      'present',
+                      question?.scoresPresent || 0 as Score,
+                      question?.commentPresent || ''
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-600 mb-2">Futur</label>
                     <Textarea
-                      value={question.futur || ''}
+                      value={question?.futur || ''}
                       onChange={(e) => {
+                        if (!exercise) return;
                         const newExercise = { ...exercise };
+                        if (!newExercise.sections[1]) {
+                          newExercise.sections[1] = {
+                            id: 'questions_evocatrices',
+                            title: 'Questions Évocatrices',
+                            description: 'Questions pour évoquer les situations',
+                            questionsEvocatrices: []
+                          };
+                        }
+                        if (!newExercise.sections[1].questionsEvocatrices) {
+                          newExercise.sections[1].questionsEvocatrices = [];
+                        }
+                        if (!newExercise.sections[1].questionsEvocatrices[index]) {
+                          newExercise.sections[1].questionsEvocatrices[index] = {
+                            passe: '',
+                            present: '',
+                            futur: '',
+                            scoresPasse: 0 as Score,
+                            scoresPresent: 0 as Score,
+                            scoresFutur: 0 as Score,
+                            commentPasse: '',
+                            commentPresent: '',
+                            commentFutur: ''
+                          };
+                        }
                         newExercise.sections[1].questionsEvocatrices[index].futur = e.target.value;
-                        setExercise(newExercise);
+                        updateExerciseAndStatus(newExercise);
                       }}
-                      className="w-full min-h-[80px] resize-vertical"
+                      className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                       placeholder="Question sur le futur..."
                       disabled={isAnswerDisabled()}
                     />
-                    {renderScoreAndComment('evocatrice', index, 'futur', question.scoresFutur, question.commentFutur)}
+                    {renderScoreAndComment(
+                      'evocatrice',
+                      index,
+                      'futur',
+                      question?.scoresFutur || 0 as Score,
+                      question?.commentFutur || ''
+                    )}
                   </div>
                 </div>
               </div>
@@ -419,101 +839,91 @@ export default function Cles() {
             {/* Questions d'impacts */}
             <div className="mb-8">
               <h3 className="text-sm font-medium text-gray-700 mb-4">Question d'Impacts</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 mb-2">Passé</label>
-                  <Textarea
-                    value={exercise?.sections[2].impactsTemporels?.passe || ''}
-                    onChange={(e) => {
-                      const newExercise = { ...exercise };
-                      newExercise.sections[2].impactsTemporels.passe = e.target.value;
-                      setExercise(newExercise);
-                    }}
-                    className="w-full min-h-[80px] resize-vertical"
-                    placeholder="Impact sur le passé..."
-                    disabled={isAnswerDisabled()}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 mb-2">Présent</label>
-                  <Textarea
-                    value={exercise?.sections[2].impactsTemporels?.present || ''}
-                    onChange={(e) => {
-                      const newExercise = { ...exercise };
-                      newExercise.sections[2].impactsTemporels.present = e.target.value;
-                      setExercise(newExercise);
-                    }}
-                    className="w-full min-h-[80px] resize-vertical"
-                    placeholder="Impact sur le présent..."
-                    disabled={isAnswerDisabled()}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 mb-2">Futur</label>
-                  <Textarea
-                    value={exercise?.sections[2].impactsTemporels?.futur || ''}
-                    onChange={(e) => {
-                      const newExercise = { ...exercise };
-                      newExercise.sections[2].impactsTemporels.futur = e.target.value;
-                      setExercise(newExercise);
-                    }}
-                    className="w-full min-h-[80px] resize-vertical"
-                    placeholder="Impact sur le futur..."
-                    disabled={isAnswerDisabled()}
-                  />
-                </div>
+              <div>
+                <Textarea
+                  value={exercise?.sections?.[2]?.impactsTemporels?.text || ''}
+                  onChange={(e) => {
+                    if (!exercise) return;
+                    const newExercise = { ...exercise };
+                    if (!newExercise.sections[2]) {
+                      newExercise.sections[2] = {
+                        id: 'impacts',
+                        title: 'Impacts',
+                        description: 'Questions sur les impacts',
+                        impactsTemporels: {
+                          text: '',
+                          score: 0 as Score,
+                          trainerComment: ''
+                        }
+                      };
+                    }
+                    if (!newExercise.sections[2].impactsTemporels) {
+                      newExercise.sections[2].impactsTemporels = {
+                        text: '',
+                        score: 0 as Score,
+                        trainerComment: ''
+                      };
+                    }
+                    newExercise.sections[2].impactsTemporels.text = e.target.value;
+                    updateExerciseAndStatus(newExercise);
+                  }}
+                  className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
+                  placeholder="Décrivez les impacts..."
+                  disabled={isAnswerDisabled()}
+                />
               </div>
-              {renderScoreAndComment('impacts', 0, null, exercise?.sections[2].impactsTemporels?.score, exercise?.sections[2].impactsTemporels?.trainerComment)}
+              {renderScoreAndComment(
+                'impacts',
+                0,
+                null,
+                exercise?.sections?.[2]?.impactsTemporels?.score || 0 as Score,
+                exercise?.sections?.[2]?.impactsTemporels?.trainerComment || ''
+              )}
             </div>
 
             {/* Questions de Besoin de Solution */}
             <div>
               <h3 className="text-sm font-medium text-gray-700 mb-4">Question de Besoin de Solution</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 mb-2">Passé</label>
-                  <Textarea
-                    value={exercise?.sections[3].besoinsSolution?.passe || ''}
-                    onChange={(e) => {
-                      const newExercise = { ...exercise };
-                      newExercise.sections[3].besoinsSolution.passe = e.target.value;
-                      setExercise(newExercise);
-                    }}
-                    className="w-full min-h-[80px] resize-vertical"
-                    placeholder="Solution pour le passé..."
-                    disabled={isAnswerDisabled()}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 mb-2">Présent</label>
-                  <Textarea
-                    value={exercise?.sections[3].besoinsSolution?.present || ''}
-                    onChange={(e) => {
-                      const newExercise = { ...exercise };
-                      newExercise.sections[3].besoinsSolution.present = e.target.value;
-                      setExercise(newExercise);
-                    }}
-                    className="w-full min-h-[80px] resize-vertical"
-                    placeholder="Solution pour le présent..."
-                    disabled={isAnswerDisabled()}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 mb-2">Futur</label>
-                  <Textarea
-                    value={exercise?.sections[3].besoinsSolution?.futur || ''}
-                    onChange={(e) => {
-                      const newExercise = { ...exercise };
-                      newExercise.sections[3].besoinsSolution.futur = e.target.value;
-                      setExercise(newExercise);
-                    }}
-                    className="w-full min-h-[80px] resize-vertical"
-                    placeholder="Solution pour le futur..."
-                    disabled={isAnswerDisabled()}
-                  />
-                </div>
+              <div>
+                <Textarea
+                  value={exercise?.sections?.[3]?.besoinsSolution?.text || ''}
+                  onChange={(e) => {
+                    if (!exercise) return;
+                    const newExercise = { ...exercise };
+                    if (!newExercise.sections[3]) {
+                      newExercise.sections[3] = {
+                        id: 'besoins_solution',
+                        title: 'Besoins de Solution',
+                        description: 'Questions sur les besoins de solution',
+                        besoinsSolution: {
+                          text: '',
+                          score: 0 as Score,
+                          trainerComment: ''
+                        }
+                      };
+                    }
+                    if (!newExercise.sections[3].besoinsSolution) {
+                      newExercise.sections[3].besoinsSolution = {
+                        text: '',
+                        score: 0 as Score,
+                        trainerComment: ''
+                      };
+                    }
+                    newExercise.sections[3].besoinsSolution.text = e.target.value;
+                    updateExerciseAndStatus(newExercise);
+                  }}
+                  className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
+                  placeholder="Décrivez les besoins de solution..."
+                  disabled={isAnswerDisabled()}
+                />
               </div>
-              {renderScoreAndComment('besoins', 0, null, exercise?.sections[3].besoinsSolution?.score, exercise?.sections[3].besoinsSolution?.trainerComment)}
+              {renderScoreAndComment(
+                'besoins',
+                0,
+                null,
+                exercise?.sections?.[3]?.besoinsSolution?.score || 0 as Score,
+                exercise?.sections?.[3]?.besoinsSolution?.trainerComment || ''
+              )}
             </div>
           </section>
 
@@ -525,293 +935,66 @@ export default function Cles() {
             </div>
 
             <div className="space-y-6">
-              {console.log('Rendering questions projectives:', exercise?.sections?.[4]?.questionsProjectives)}
-              {Array.from({ length: 5 }).map((_, index) => {
-                const question = exercise?.sections?.[4]?.questionsProjectives?.[index] || {};
-                console.log('Question at index', index, ':', question);
+              {exercise?.sections?.[4]?.questionsProjectives?.map((questionRaw, index) => {
+                const question = initializeQuestionProjective(questionRaw);
                 return (
                   <div key={index} className="space-y-4">
                     <h3 className="text-sm font-medium text-gray-700">Question Projective {index + 1}</h3>
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-600 mb-2">Votre question</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Question Projective</label>
                         <Textarea
-                          value={question?.question || ''}
-                          onChange={(e) => {
-                            const newExercise = { ...exercise };
-                            if (!newExercise.sections) {
-                              newExercise.sections = [];
-                            }
-                            if (!newExercise.sections[4]) {
-                              newExercise.sections[4] = {
-                                id: 'questions_projectives',
-                                title: 'Questions Projectives',
-                                description: 'Questions projectives pour explorer les possibilités',
-                                questionsProjectives: Array(5).fill({
-                                  question: '',
-                                  reponseClient: '',
-                                  confirmation: '',
-                                  impacts: '',
-                                  besoinSolution: '',
-                                  scores: {},
-                                  comments: {}
-                                })
-                              };
-                            }
-                            if (!newExercise.sections[4].questionsProjectives) {
-                              newExercise.sections[4].questionsProjectives = Array(5).fill({
-                                question: '',
-                                reponseClient: '',
-                                confirmation: '',
-                                impacts: '',
-                                besoinSolution: '',
-                                scores: {},
-                                comments: {}
-                              });
-                            }
-                            if (!newExercise.sections[4].questionsProjectives[index]) {
-                              newExercise.sections[4].questionsProjectives[index] = {
-                                question: '',
-                                reponseClient: '',
-                                confirmation: '',
-                                impacts: '',
-                                besoinSolution: '',
-                                scores: {},
-                                comments: {}
-                              };
-                            }
-                            newExercise.sections[4].questionsProjectives[index].question = e.target.value;
-                            setExercise(newExercise);
-                          }}
-                          className="w-full min-h-[80px] resize-vertical"
+                          value={question.question}
+                          onChange={(e) => handleQuestionProjectiveChange(index, 'question', e.target.value)}
+                          className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                           placeholder="Question projective..."
                           disabled={isAnswerDisabled()}
                         />
-                        {renderScoreAndComment('projective', index, 'question', question?.scores?.question, question?.comments?.question)}
+                        {renderScoreAndComment('projective', index, 'question', question.scores.question, question.comments.question)}
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-600 mb-2">Réponse du client</label>
                         <Textarea
-                          value={question?.reponseClient || ''}
-                          onChange={(e) => {
-                            const newExercise = { ...exercise };
-                            if (!newExercise.sections) {
-                              newExercise.sections = [];
-                            }
-                            if (!newExercise.sections[4]) {
-                              newExercise.sections[4] = {
-                                id: 'questions_projectives',
-                                title: 'Questions Projectives',
-                                description: 'Questions projectives pour explorer les possibilités',
-                                questionsProjectives: Array(5).fill({
-                                  question: '',
-                                  reponseClient: '',
-                                  confirmation: '',
-                                  impacts: '',
-                                  besoinSolution: '',
-                                  scores: {},
-                                  comments: {}
-                                })
-                              };
-                            }
-                            if (!newExercise.sections[4].questionsProjectives) {
-                              newExercise.sections[4].questionsProjectives = Array(5).fill({
-                                question: '',
-                                reponseClient: '',
-                                confirmation: '',
-                                impacts: '',
-                                besoinSolution: '',
-                                scores: {},
-                                comments: {}
-                              });
-                            }
-                            if (!newExercise.sections[4].questionsProjectives[index]) {
-                              newExercise.sections[4].questionsProjectives[index] = {
-                                question: '',
-                                reponseClient: '',
-                                confirmation: '',
-                                impacts: '',
-                                besoinSolution: '',
-                                scores: {},
-                                comments: {}
-                              };
-                            }
-                            newExercise.sections[4].questionsProjectives[index].reponseClient = e.target.value;
-                            setExercise(newExercise);
-                          }}
-                          className="w-full min-h-[80px] resize-vertical"
+                          value={question.reponseClient}
+                          onChange={(e) => handleQuestionProjectiveChange(index, 'reponseClient', e.target.value)}
+                          className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                           placeholder="Réponse..."
                           disabled={isAnswerDisabled()}
                         />
-                        {renderScoreAndComment('projective', index, 'reponseClient', question?.scores?.reponseClient, question?.comments?.reponseClient)}
+                        {renderScoreAndComment('projective', index, 'reponseClient', question.scores.reponseClient, question.comments.reponseClient)}
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-600 mb-2">Confirmation du problème</label>
                         <Textarea
-                          value={question?.confirmation || ''}
-                          onChange={(e) => {
-                            const newExercise = { ...exercise };
-                            if (!newExercise.sections) {
-                              newExercise.sections = [];
-                            }
-                            if (!newExercise.sections[4]) {
-                              newExercise.sections[4] = {
-                                id: 'questions_projectives',
-                                title: 'Questions Projectives',
-                                description: 'Questions projectives pour explorer les possibilités',
-                                questionsProjectives: Array(5).fill({
-                                  question: '',
-                                  reponseClient: '',
-                                  confirmation: '',
-                                  impacts: '',
-                                  besoinSolution: '',
-                                  scores: {},
-                                  comments: {}
-                                })
-                              };
-                            }
-                            if (!newExercise.sections[4].questionsProjectives) {
-                              newExercise.sections[4].questionsProjectives = Array(5).fill({
-                                question: '',
-                                reponseClient: '',
-                                confirmation: '',
-                                impacts: '',
-                                besoinSolution: '',
-                                scores: {},
-                                comments: {}
-                              });
-                            }
-                            if (!newExercise.sections[4].questionsProjectives[index]) {
-                              newExercise.sections[4].questionsProjectives[index] = {
-                                question: '',
-                                reponseClient: '',
-                                confirmation: '',
-                                impacts: '',
-                                besoinSolution: '',
-                                scores: {},
-                                comments: {}
-                              };
-                            }
-                            newExercise.sections[4].questionsProjectives[index].confirmation = e.target.value;
-                            setExercise(newExercise);
-                          }}
-                          className="w-full min-h-[80px] resize-vertical"
+                          value={question.confirmation}
+                          onChange={(e) => handleQuestionProjectiveChange(index, 'confirmation', e.target.value)}
+                          className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                           placeholder="Confirmation..."
                           disabled={isAnswerDisabled()}
                         />
-                        {renderScoreAndComment('projective', index, 'confirmation', question?.scores?.confirmation, question?.comments?.confirmation)}
+                        {renderScoreAndComment('projective', index, 'confirmation', question.scores.confirmation, question.comments.confirmation)}
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-600 mb-2">Question d'Impacts</label>
                         <Textarea
-                          value={question?.impacts || ''}
-                          onChange={(e) => {
-                            const newExercise = { ...exercise };
-                            if (!newExercise.sections) {
-                              newExercise.sections = [];
-                            }
-                            if (!newExercise.sections[4]) {
-                              newExercise.sections[4] = {
-                                id: 'questions_projectives',
-                                title: 'Questions Projectives',
-                                description: 'Questions projectives pour explorer les possibilités',
-                                questionsProjectives: Array(5).fill({
-                                  question: '',
-                                  reponseClient: '',
-                                  confirmation: '',
-                                  impacts: '',
-                                  besoinSolution: '',
-                                  scores: {},
-                                  comments: {}
-                                })
-                              };
-                            }
-                            if (!newExercise.sections[4].questionsProjectives) {
-                              newExercise.sections[4].questionsProjectives = Array(5).fill({
-                                question: '',
-                                reponseClient: '',
-                                confirmation: '',
-                                impacts: '',
-                                besoinSolution: '',
-                                scores: {},
-                                comments: {}
-                              });
-                            }
-                            if (!newExercise.sections[4].questionsProjectives[index]) {
-                              newExercise.sections[4].questionsProjectives[index] = {
-                                question: '',
-                                reponseClient: '',
-                                confirmation: '',
-                                impacts: '',
-                                besoinSolution: '',
-                                scores: {},
-                                comments: {}
-                              };
-                            }
-                            newExercise.sections[4].questionsProjectives[index].impacts = e.target.value;
-                            setExercise(newExercise);
-                          }}
-                          className="w-full min-h-[80px] resize-vertical"
+                          value={question.impacts}
+                          onChange={(e) => handleQuestionProjectiveChange(index, 'impacts', e.target.value)}
+                          className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                           placeholder="Question d'impacts..."
                           disabled={isAnswerDisabled()}
                         />
-                        {renderScoreAndComment('projective', index, 'impacts', question?.scores?.impacts, question?.comments?.impacts)}
+                        {renderScoreAndComment('projective', index, 'impacts', question.scores.impacts, question.comments.impacts)}
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-600 mb-2">Question de besoin de solution</label>
                         <Textarea
-                          value={question?.besoinSolution || ''}
-                          onChange={(e) => {
-                            const newExercise = { ...exercise };
-                            if (!newExercise.sections) {
-                              newExercise.sections = [];
-                            }
-                            if (!newExercise.sections[4]) {
-                              newExercise.sections[4] = {
-                                id: 'questions_projectives',
-                                title: 'Questions Projectives',
-                                description: 'Questions projectives pour explorer les possibilités',
-                                questionsProjectives: Array(5).fill({
-                                  question: '',
-                                  reponseClient: '',
-                                  confirmation: '',
-                                  impacts: '',
-                                  besoinSolution: '',
-                                  scores: {},
-                                  comments: {}
-                                })
-                              };
-                            }
-                            if (!newExercise.sections[4].questionsProjectives) {
-                              newExercise.sections[4].questionsProjectives = Array(5).fill({
-                                question: '',
-                                reponseClient: '',
-                                confirmation: '',
-                                impacts: '',
-                                besoinSolution: '',
-                                scores: {},
-                                comments: {}
-                              });
-                            }
-                            if (!newExercise.sections[4].questionsProjectives[index]) {
-                              newExercise.sections[4].questionsProjectives[index] = {
-                                question: '',
-                                reponseClient: '',
-                                confirmation: '',
-                                impacts: '',
-                                besoinSolution: '',
-                                scores: {},
-                                comments: {}
-                              };
-                            }
-                            newExercise.sections[4].questionsProjectives[index].besoinSolution = e.target.value;
-                            setExercise(newExercise);
-                          }}
-                          className="w-full min-h-[80px] resize-vertical"
+                          value={question.besoinSolution}
+                          onChange={(e) => handleQuestionProjectiveChange(index, 'besoinSolution', e.target.value)}
+                          className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                           placeholder="Question de besoin de solution..."
                           disabled={isAnswerDisabled()}
                         />
-                        {renderScoreAndComment('projective', index, 'besoinSolution', question?.scores?.besoinSolution, question?.comments?.besoinSolution)}
+                        {renderScoreAndComment('projective', index, 'besoinSolution', question.scores.besoinSolution, question.comments.besoinSolution)}
                       </div>
                     </div>
                   </div>
@@ -825,9 +1008,9 @@ export default function Cles() {
         <div className="mt-8 flex justify-end space-x-4">
           {!isTrainer && !isAdmin && exercise?.status !== 'submitted' && exercise?.status !== 'evaluated' && (
             <Button
-              onClick={() => console.log('Soumettre l\'exercice')}
+              onClick={handleSubmit}
               className="bg-green-600 text-white hover:bg-green-700"
-              disabled={loading}
+              disabled={loading || !canSubmit()}
             >
               Soumettre l'exercice
             </Button>

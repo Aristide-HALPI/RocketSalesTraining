@@ -63,7 +63,7 @@ const Welcome: FC = () => {
 
             <div className="prose max-w-none">
               <p className="text-gray-700 text-lg">
-                Je suis ravi que vous suiviez la Formation "<span className="text-teal-700 font-medium">Rocket Sales Training</span>" de BrightBiz!
+                Je suis ravi que vous suiviez la Formation "<span className="text-teal-700 font-medium">Sales Hero Training</span>" de BrightBiz!
                 Elle vous sera utile pour toute la vie!
               </p>
               <p className="text-gray-700 text-lg">
