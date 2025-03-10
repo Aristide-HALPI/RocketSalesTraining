@@ -1,34 +1,11 @@
 import { useAuth } from '../contexts/AuthContext';
 import { Link } from 'react-router-dom';
-import { CheckCircle, BookOpen, Clock } from 'lucide-react';
 import { Button } from '../components/ui/button';
 
 export default function Dashboard() {
+  // Nous gardons userProfile même s'il n'est pas utilisé actuellement car il pourrait être nécessaire plus tard
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { userProfile } = useAuth();
-
-  const stats = [
-    {
-      title: 'Exercices complétés',
-      value: '0',
-      icon: CheckCircle,
-      color: 'text-teal-600',
-      link: userProfile?.role === 'trainer' ? '/evaluations' : '/exercises'
-    },
-    {
-      title: userProfile?.role === 'trainer' ? 'Exercices à évaluer' : 'Exercices disponibles',
-      value: '16',
-      icon: BookOpen,
-      color: 'text-teal-600',
-      link: userProfile?.role === 'trainer' ? '/evaluations/pending' : '/exercises/available'
-    },
-    {
-      title: userProfile?.role === 'trainer' ? 'Temps moyen d\'évaluation' : 'Temps d\'apprentissage',
-      value: '0.0h',
-      icon: Clock,
-      color: 'text-teal-600',
-      link: userProfile?.role === 'trainer' ? '/statistics/evaluation' : '/statistics/learning'
-    }
-  ];
 
   const exercises = [
     {
@@ -123,35 +100,6 @@ export default function Dashboard() {
         <p className="mt-2 text-sm text-gray-600">
           Bienvenue dans votre parcours de formation commerciale
         </p>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {stats.map((stat, index) => (
-          <Link
-            key={index}
-            to={stat.link || '#'}
-            className="relative overflow-hidden rounded-lg bg-white px-4 pb-12 pt-5 shadow sm:px-6 sm:pt-6"
-          >
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <stat.icon className={`h-6 w-6 ${stat.color}`} />
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">
-                      {stat.title}
-                    </dt>
-                    <dd className="text-lg font-semibold text-gray-900">
-                      {stat.value}
-                    </dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </Link>
-        ))}
       </div>
 
       {/* Exercise Grid */}
