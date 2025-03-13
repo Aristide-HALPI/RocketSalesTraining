@@ -129,6 +129,7 @@ const extractJsonFromMarkdown = (content: string): string => {
 export async function evaluateExercise(organizationId: string, content: string | DialogueEntry[], type: ExerciseType = 'rdv_decideur'): Promise<AIEvaluationResponse> {
   try {
     const token = import.meta.env.VITE_FABRILE_TOKEN;
+    const apiUrl = import.meta.env.VITE_FABRILE_API_URL || '';
     let botId;
 
     // Sélectionner le bot en fonction du type d'exercice

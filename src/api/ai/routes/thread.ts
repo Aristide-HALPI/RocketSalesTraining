@@ -1,12 +1,13 @@
 async function createThread(organizationId: string, agentId: string) {
   try {
     const token = import.meta.env.VITE_FABRILE_TOKEN;
+    const apiUrl = import.meta.env.VITE_FABRILE_API_URL || '';
     
     if (!token) {
       throw new Error("VITE_FABRILE_TOKEN is missing in the environment variables.");
     }
 
-    const response = await fetch(`/api/v1/threads`, {
+    const response = await fetch(`${apiUrl}/api/v1/threads`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -36,13 +37,14 @@ async function createThread(organizationId: string, agentId: string) {
 async function createThreadMessage(organizationId: string, threadId: string, message: string) {
   try {
     const token = import.meta.env.VITE_FABRILE_TOKEN;
+    const apiUrl = import.meta.env.VITE_FABRILE_API_URL || '';
     
     if (!token) {
       throw new Error("VITE_FABRILE_TOKEN is missing in the environment variables.");
     }
 
     console.log(organizationId, threadId);
-    const response = await fetch(`/api/v1/threads/${threadId}/messages`, {
+    const response = await fetch(`${apiUrl}/api/v1/threads/${threadId}/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
