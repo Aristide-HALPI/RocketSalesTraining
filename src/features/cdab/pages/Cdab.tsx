@@ -5,6 +5,7 @@ import { ExerciseTemplate } from '../../../components/ExerciseTemplate';
 import { cdabService, type CdabCharacteristic } from '../services/cdabService';
 import { toast } from 'react-hot-toast';
 import { useCdabStore } from '../../../stores/cdabStore';
+import { ExerciseStatus } from '../../../types/exercises';
 
 export default function Cdab() {
   console.log('=== Montage du composant Cdab ===');
@@ -19,66 +20,7 @@ export default function Cdab() {
   const [evaluatingBatch, setEvaluatingBatch] = useState<number | null>(null);
 
   const isFormateur = userProfile?.role === 'trainer' || userProfile?.role === 'admin';
-  const isStudent = !!studentIdParam;
   const targetUserId = studentIdParam || currentUser?.uid || '';
-
-  // Mise à jour de la logique de permission d'édition
-  const canEdit = useMemo(() => {
-    return isFormateur || // Les formateurs peuvent toujours éditer
-           (!isStudent && currentExercise?.status === 'submitted'); // Les autres ne peuvent éditer que si non évalué
-  }, [isFormateur, isStudent, currentExercise?.status]);
-
-  // Mise à jour de la logique pour afficher les champs d'évaluation
-  const showEvaluationFields = useMemo(() => {
-    return isFormateur || currentExercise?.status === 'evaluated';
-  }, [isFormateur, currentExercise?.status]);
-
-  // Fonction pour gérer l'évaluation par lots
-  const handleBatchEvaluation = useCallback(async (batchNumber: number) => {
-    if (!targetUserId || !currentUser?.uid || !userProfile?.organizationId || !currentExercise?.characteristics) {
-      console.log('Données manquantes:', { targetUserId, currentUser, userProfile, currentExercise });
-      return;
-    }
-    
-    setEvaluatingBatch(batchNumber);
-    try {
-      // Ajuster le calcul des indices pour évaluer 4 caractéristiques à la fois
-      const startIndex = (batchNumber - 1) * 4;
-      const endIndex = Math.min(startIndex + 3, currentExercise.characteristics.length - 1);
-      
-      console.log(`Évaluation du lot ${batchNumber}: caractéristiques ${startIndex + 1}-${endIndex + 1}`);
-      
-      await cdabService.evaluateWithAIBatch(
-        targetUserId,
-        userProfile.organizationId,
-        startIndex,
-        endIndex
-      );
-      
-      toast.success(`Caractéristiques ${startIndex + 1}-${endIndex + 1} évaluées avec succès`);
-    } catch (error) {
-      console.error('Erreur lors de l\'évaluation du lot:', error);
-      toast.error('Erreur lors de l\'évaluation');
-    } finally {
-      setEvaluatingBatch(null);
-    }
-  }, [targetUserId, currentUser?.uid, userProfile?.organizationId, currentExercise?.characteristics]);
-
-  // Fonction pour gérer la soumission
-  const handleSubmit = useCallback(async () => {
-    if (!targetUserId) return;
-    
-    try {
-      setLoading(true);
-      await cdabService.submitExercise(targetUserId);
-      toast.success('Exercice soumis avec succès');
-    } catch (error) {
-      console.error('Erreur lors de la soumission:', error);
-      toast.error('Erreur lors de la soumission');
-    } finally {
-      setLoading(false);
-    }
-  }, [targetUserId]);
 
   // Vérifier si l'utilisateur est autorisé
   useEffect(() => {
@@ -121,6 +63,95 @@ export default function Cdab() {
     };
   }, [authLoading, currentUser?.uid, targetUserId, updateExercise]);
 
+  // Mise à jour de la logique de permission d'édition
+  const canEdit = useMemo(() => {
+    // Les formateurs peuvent toujours éditer
+    if (isFormateur) return true;
+
+    // Si l'exercice n'existe pas encore, on peut éditer
+    if (!currentExercise) return true;
+
+    // Pour les étudiants et utilisateurs normaux :
+    // On ne peut plus éditer si l'exercice est soumis ou évalué
+    return currentExercise.status !== ExerciseStatus.Submitted && 
+           currentExercise.status !== ExerciseStatus.Evaluated;
+  }, [isFormateur, currentExercise]);
+
+  // Mise à jour de la logique pour afficher les champs d'évaluation
+  const showEvaluationFields = useMemo(() => {
+    return isFormateur || currentExercise?.status === ExerciseStatus.Evaluated;
+  }, [isFormateur, currentExercise?.status]);
+
+  // Mise à jour de la logique pour permettre la soumission
+  const canSubmit = useMemo(() => {
+    if (!currentExercise) return false;
+    
+    // Un formateur ne peut pas soumettre
+    if (isFormateur) return false;
+    
+    // Vérifie si l'exercice est en cours et a au moins une réponse
+    const hasResponses = currentExercise.characteristics.some(char => 
+      char.description?.trim() || 
+      char.definition?.trim() || 
+      char.advantages?.trim() || 
+      char.benefits?.trim() || 
+      char.proofs?.trim() || 
+      char.problems?.trim()
+    );
+    
+    return currentExercise.status === ExerciseStatus.InProgress && hasResponses;
+  }, [currentExercise, isFormateur]);
+
+  // Fonction pour gérer la soumission
+  const handleSubmit = useCallback(async () => {
+    if (!targetUserId || !canSubmit) {
+      console.log('Impossible de soumettre:', { targetUserId, canSubmit });
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      await cdabService.submitExercise(targetUserId);
+      toast.success('Exercice soumis avec succès');
+    } catch (error) {
+      console.error('Erreur lors de la soumission:', error);
+      toast.error('Erreur lors de la soumission');
+    } finally {
+      setLoading(false);
+    }
+  }, [targetUserId, canSubmit]);
+
+  // Fonction pour gérer l'évaluation par lots
+  const handleBatchEvaluation = useCallback(async (batchNumber: number) => {
+    if (!targetUserId || !currentUser?.uid || !userProfile?.organizationId || !currentExercise?.characteristics) {
+      console.log('Données manquantes:', { targetUserId, currentUser, userProfile, currentExercise });
+      return;
+    }
+    
+    setEvaluatingBatch(batchNumber);
+    try {
+      // Ajuster le calcul des indices pour évaluer 4 caractéristiques à la fois
+      const startIndex = (batchNumber - 1) * 4;
+      const endIndex = Math.min(startIndex + 3, currentExercise.characteristics.length - 1);
+      
+      console.log(`Évaluation du lot ${batchNumber}: caractéristiques ${startIndex + 1}-${endIndex + 1}`);
+      
+      await cdabService.evaluateWithAIBatch(
+        targetUserId,
+        userProfile.organizationId,
+        startIndex,
+        endIndex
+      );
+      
+      toast.success(`Caractéristiques ${startIndex + 1}-${endIndex + 1} évaluées avec succès`);
+    } catch (error) {
+      console.error('Erreur lors de l\'évaluation du lot:', error);
+      toast.error('Erreur lors de l\'évaluation');
+    } finally {
+      setEvaluatingBatch(null);
+    }
+  }, [targetUserId, currentUser?.uid, userProfile?.organizationId, currentExercise?.characteristics]);
+
   // Fonction pour gérer le changement de caractéristique
   const handleCharacteristicChange = useCallback(async (index: number, field: keyof CdabCharacteristic, value: string) => {
     if (!currentExercise || !canEdit || !targetUserId) return;
@@ -134,7 +165,7 @@ export default function Cdab() {
     const exerciseUpdate = {
       ...currentExercise,
       characteristics: updatedCharacteristics,
-      status: 'in_progress' as const,
+      status: ExerciseStatus.InProgress,
       updatedAt: new Date().toISOString()
     };
 
@@ -197,11 +228,6 @@ export default function Cdab() {
 
   console.log('État actuel:', { loading, authLoading, currentExercise });
 
-  // Mise à jour de la logique pour permettre la soumission
-  const canSubmit = useMemo(() => {
-    return currentExercise?.status === 'evaluated' && currentExercise?.finalScore !== undefined;
-  }, [currentExercise?.status, currentExercise?.finalScore]);
-
   if (authLoading) {
     return <div>Chargement...</div>;
   }
@@ -210,7 +236,8 @@ export default function Cdab() {
     return <div>Erreur: Impossible de charger l'exercice</div>;
   }
 
-  const exerciseStatus = currentExercise.status as 'not_started' | 'in_progress' | 'submitted' | 'evaluated';
+  // Conversion du statut pour le ExerciseTemplate
+  const exerciseStatus = currentExercise.status as 'not_started' | 'in_progress' | 'submitted' | 'evaluated' | 'pending_validation';
 
   return (
     <ExerciseTemplate
@@ -361,7 +388,7 @@ export default function Cdab() {
                     </div>
                   ))}
                   {/* Affichage des notes et commentaires pour l'apprenant */}
-                  {!isFormateur && characteristic.descriptionComment && currentExercise?.status === 'evaluated' && (
+                  {!isFormateur && characteristic.descriptionComment && currentExercise?.status === ExerciseStatus.Evaluated && (
                     <div className="mt-4 border-t border-purple-200 pt-4">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-sm font-medium text-purple-700">Note : {characteristic.descriptionScore || 0}/2</span>
@@ -440,7 +467,7 @@ export default function Cdab() {
                       </div>
                     </div>
                   )}
-                  {!isFormateur && characteristic.advantagesComment && currentExercise?.status === 'evaluated' && (
+                  {!isFormateur && characteristic.advantagesComment && currentExercise?.status === ExerciseStatus.Evaluated && (
                     <div className="mt-4 border-t border-emerald-200 pt-4">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-sm font-medium text-emerald-700">Note : {characteristic.advantagesScore || 0}/2</span>
@@ -500,7 +527,7 @@ export default function Cdab() {
                       </div>
                     </div>
                   )}
-                  {!isFormateur && characteristic.benefitsComment && currentExercise?.status === 'evaluated' && (
+                  {!isFormateur && characteristic.benefitsComment && currentExercise?.status === ExerciseStatus.Evaluated && (
                     <div className="mt-4 border-t border-orange-200 pt-4">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-sm font-medium text-orange-700">Note : {characteristic.benefitsScore || 0}/2</span>
@@ -560,7 +587,7 @@ export default function Cdab() {
                       </div>
                     </div>
                   )}
-                  {!isFormateur && characteristic.proofsComment && currentExercise?.status === 'evaluated' && (
+                  {!isFormateur && characteristic.proofsComment && currentExercise?.status === ExerciseStatus.Evaluated && (
                     <div className="mt-4 border-t border-yellow-200 pt-4">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-sm font-medium text-yellow-700">Note : {characteristic.proofsScore || 0}/2</span>
@@ -620,7 +647,7 @@ export default function Cdab() {
                       </div>
                     </div>
                   )}
-                  {!isFormateur && characteristic.problemsComment && currentExercise?.status === 'evaluated' && (
+                  {!isFormateur && characteristic.problemsComment && currentExercise?.status === ExerciseStatus.Evaluated && (
                     <div className="mt-4 border-t border-red-200 pt-4">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-sm font-medium text-red-700">Note : {characteristic.problemsScore || 0}/2</span>
@@ -640,7 +667,7 @@ export default function Cdab() {
             <button
               className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50"
               onClick={handleSubmit}
-              disabled={loading || currentExercise?.status === 'submitted' || currentExercise?.status === 'evaluated'}
+              disabled={loading || currentExercise?.status === ExerciseStatus.Submitted || currentExercise?.status === ExerciseStatus.Evaluated}
             >
               {loading ? 'Envoi en cours...' : 'Soumettre'}
             </button>
@@ -679,7 +706,7 @@ export default function Cdab() {
                     setLoading(false);
                   }
                 }}
-                disabled={loading || !currentExercise?.status || currentExercise.status !== 'evaluated'}
+                disabled={loading || !currentExercise?.status || currentExercise.status !== ExerciseStatus.Evaluated}
               >
                 {loading ? 'Publication...' : 'Publier les résultats'}
               </button>

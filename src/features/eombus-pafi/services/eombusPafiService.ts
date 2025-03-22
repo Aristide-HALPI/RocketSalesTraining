@@ -322,13 +322,13 @@ export const eombusPafiService = {
   async submitExercise(userId: string) {
     const exercise = await this.getExercise(userId);
 
-    // Vérifier si toutes les questions sont remplies
-    const hasEmptyQuestions = exercise.sections.some(section =>
-      section.questions.some(question => !question.text.trim())
+    // Vérifier si au moins une question a été répondue
+    const hasAtLeastOneAnswer = exercise.sections.some(section =>
+      section.questions.some(question => question.text.trim().length > 0)
     );
 
-    if (hasEmptyQuestions) {
-      throw new Error('Toutes les questions doivent être remplies avant de soumettre l\'exercice');
+    if (!hasAtLeastOneAnswer) {
+      throw new Error('Vous devez répondre à au moins une question avant de soumettre l\'exercice');
     }
 
     await this.updateExercise(userId, {
