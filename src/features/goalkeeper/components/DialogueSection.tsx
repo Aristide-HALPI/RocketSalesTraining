@@ -91,14 +91,18 @@ export const DialogueSection: React.FC<DialogueSectionProps> = ({
                   />
                 ) : (
                   <div 
-                    className="text-sm text-gray-500 italic p-2 border border-gray-200 rounded min-h-[80px] bg-gray-50 whitespace-pre-wrap"
-                    style={{ height: 'auto' }}
+                    className="text-sm text-gray-500 italic p-2 border border-gray-200 rounded min-h-[80px] bg-gray-50 whitespace-pre-wrap overflow-auto"
+                    style={{ 
+                      height: 'auto', 
+                      minHeight: '80px',
+                      maxHeight: line.feedback && line.feedback.length > 200 ? 'none' : 'auto'
+                    }}
                   >
                     {isSubmitted 
                       ? (line.feedback 
                         ? (
                           <div>
-                            <div className="mt-2 text-sm text-gray-600 italic bg-gray-50 p-2 rounded">
+                            <div className="text-sm text-gray-600 italic bg-gray-50 p-2 rounded">
                               {line.feedback}
                             </div>
                           </div>

@@ -489,9 +489,198 @@ Remember: Your response MUST be valid JSON that can be parsed with JSON.parse().
   } => {
     let parsedFeedback;
     try {
-      // Strip out markdown code block markers if present
-      const cleanedFeedback = feedback.replace(/^```json\n|\n```$/g, '').trim();
-      parsedFeedback = JSON.parse(cleanedFeedback);
+      // Extraire le JSON des balises markdown si présentes
+      const jsonMatch = feedback.match(/```json\s*([\s\S]*?)\s*```/);
+      let jsonContent = jsonMatch ? jsonMatch[1] : feedback;
+      
+      // Nettoyer le contenu avant le parsing
+      jsonContent = jsonContent.trim();
+      
+      // Afficher le JSON brut pour débogage
+      console.log('JSON brut (début):', jsonContent.substring(0, 200) + '...');
+      
+      // Tentative de parsing direct
+      try {
+        parsedFeedback = JSON.parse(jsonContent);
+      } catch (parseError) {
+        console.log('JSON malformé, tentative de réparation avancée...', parseError);
+        
+        // 1. Corriger les noms de propriétés sans guillemets
+        // Recherche des motifs comme name: "valeur" et les remplace par "name": "valeur"
+        jsonContent = jsonContent.replace(/([\{,]\s*)([a-zA-Z0-9_]+)(\s*:)/g, '$1"$2"$3');
+        
+        // 2. Corriger les valeurs numériques avec guillemets
+        // Recherche des motifs comme "score": "2" et les remplace par "score": 2
+        jsonContent = jsonContent.replace(/"(score|maxPoints)"\s*:\s*"([0-9]+)"/g, '"$1": $2');
+        
+        // 3. Corriger les guillemets échappés incorrectement
+        // Remplacer les \" par \\"
+        jsonContent = jsonContent.replace(/([^\\])\"([^\\])/g, '$1\\"$2');
+        
+        console.log('JSON après corrections (début):', jsonContent.substring(0, 200) + '...');
+        
+        // Compter les accolades/crochets ouvrants et fermants
+        const openBraces = (jsonContent.match(/{/g) || []).length;
+        const closeBraces = (jsonContent.match(/}/g) || []).length;
+        const openBrackets = (jsonContent.match(/\[/g) || []).length;
+        const closeBrackets = (jsonContent.match(/]/g) || []).length;
+        
+        // Vérifier si le JSON est tronqué au milieu d'une propriété
+        const lastChar = jsonContent.trim().slice(-1);
+        if (lastChar === '"' || lastChar === ':' || lastChar === ',') {
+          // Supprimer la dernière ligne incomplète
+          jsonContent = jsonContent.replace(/,[^\]}]*$/, '');
+        }
+        
+        // Ajouter les accolades/crochets manquants
+        while (closeBrackets < openBrackets) {
+          jsonContent += ']';
+        }
+        while (closeBraces < openBraces) {
+          jsonContent += '}';
+        }
+        
+        // Nouvelle tentative de parsing après réparation
+        try {
+          parsedFeedback = JSON.parse(jsonContent);
+          console.log('JSON réparé avec succès');
+        } catch (repairError) {
+          console.error('Impossible de réparer le JSON avec les corrections standard:', repairError);
+          
+          // Tentative de dernier recours: analyse manuelle du JSON
+          try {
+            console.log('Tentative de réparation manuelle du JSON...');
+            
+            // Créer un objet de base avec les types corrects
+            parsedFeedback = {
+              lineFeedback: {} as Record<string, string>,
+              evaluation: {
+                criteria: [] as Array<{
+                  name: string;
+                  score: number;
+                  maxPoints: number;
+                  feedback: string;
+                }>
+              }
+            };
+            
+            // Extraire les feedbacks ligne par ligne avec une regex plus permissive
+            const lineFeedbackRegex = /"([0-9]+)"\s*:\s*"([^"]+)"/g;
+            let match;
+            while ((match = lineFeedbackRegex.exec(jsonContent)) !== null) {
+              const lineNumber = match[1];
+              const feedbackText = match[2];
+              parsedFeedback.lineFeedback[lineNumber] = feedbackText;
+            }
+            
+            // Extraire les critères d'évaluation de manière plus robuste
+            // Rechercher d'abord tous les blocs de critères
+            const criteriaBlocks = jsonContent.match(/\{[^\{\}]*"name"[^\{\}]*\}/g) || [];
+            
+            console.log(`Trouvé ${criteriaBlocks.length} blocs de critères potentiels`);
+            
+            for (const block of criteriaBlocks) {
+              try {
+                // Corriger les guillemets autour des propriétés
+                let fixedBlock = block.replace(/([\{,]\s*)([a-zA-Z0-9_]+)(\s*:)/g, '$1"$2"$3');
+                
+                // Corriger les valeurs numériques avec guillemets
+                fixedBlock = fixedBlock.replace(/"(score|maxPoints)"\s*:\s*"([0-9]+)"/g, '"$1": $2');
+                
+                // Essayer de parser le bloc
+                try {
+                  const criteriaObj = JSON.parse(fixedBlock);
+                  if (criteriaObj.name && (criteriaObj.score !== undefined || typeof criteriaObj.score === 'number') && 
+                      (criteriaObj.maxPoints !== undefined || typeof criteriaObj.maxPoints === 'number') && criteriaObj.feedback) {
+                    // Convertir les scores en nombres si nécessaire
+                    const score = typeof criteriaObj.score === 'string' ? parseInt(criteriaObj.score) : criteriaObj.score;
+                    const maxPoints = typeof criteriaObj.maxPoints === 'string' ? parseInt(criteriaObj.maxPoints) : criteriaObj.maxPoints;
+                    
+                    parsedFeedback.evaluation.criteria.push({
+                      name: criteriaObj.name,
+                      score: score,
+                      maxPoints: maxPoints,
+                      feedback: criteriaObj.feedback
+                    });
+                  }
+                } catch (blockParseError) {
+                  // Si le parsing échoue, essayer d'extraire manuellement avec regex
+                  const nameMatch = fixedBlock.match(/"name"\s*:\s*"([^"]+)"/);                
+                  const scoreMatch = fixedBlock.match(/"score"\s*:\s*([0-9]+)/) || fixedBlock.match(/"score"\s*:\s*"([0-9]+)"/);                
+                  const maxPointsMatch = fixedBlock.match(/"maxPoints"\s*:\s*([0-9]+)/) || fixedBlock.match(/"maxPoints"\s*:\s*"([0-9]+)"/);                
+                  const feedbackMatch = fixedBlock.match(/"feedback"\s*:\s*"([^"]+)"/);                
+                
+                  if (nameMatch && scoreMatch && maxPointsMatch && feedbackMatch) {
+                    parsedFeedback.evaluation.criteria.push({
+                      name: nameMatch[1],
+                      score: parseInt(scoreMatch[1]),
+                      maxPoints: parseInt(maxPointsMatch[1]),
+                      feedback: feedbackMatch[1]
+                    });
+                  }
+                }
+              } catch (blockError) {
+                console.log('Erreur lors du traitement d\'un bloc de critère:', blockError);
+              }
+            }
+            
+            console.log('Réparation manuelle réussie, données extraites:', 
+              Object.keys(parsedFeedback.lineFeedback).length, 'feedbacks,',
+              parsedFeedback.evaluation.criteria.length, 'critères');
+            
+            if (parsedFeedback.evaluation.criteria.length === 0) {
+              // Dernier recours: extraire les critères ligne par ligne
+              const nameRegex = /"name"\s*:\s*"([^"]+)"/g;
+              const scoreRegex = /"score"\s*:\s*"?([0-9]+)"?/g;
+              const maxPointsRegex = /"maxPoints"\s*:\s*"?([0-9]+)"?/g;
+              const feedbackRegex = /"feedback"\s*:\s*"([^"]+)"/g;
+              
+              const names: string[] = [];
+              const scores: number[] = [];
+              const maxPoints: number[] = [];
+              const feedbacks: string[] = [];
+              
+              let nameMatch;
+              while ((nameMatch = nameRegex.exec(jsonContent)) !== null) {
+                names.push(nameMatch[1]);
+              }
+              
+              let scoreMatch;
+              while ((scoreMatch = scoreRegex.exec(jsonContent)) !== null) {
+                scores.push(parseInt(scoreMatch[1]));
+              }
+              
+              let maxPointsMatch;
+              while ((maxPointsMatch = maxPointsRegex.exec(jsonContent)) !== null) {
+                maxPoints.push(parseInt(maxPointsMatch[1]));
+              }
+              
+              let feedbackMatch;
+              while ((feedbackMatch = feedbackRegex.exec(jsonContent)) !== null) {
+                feedbacks.push(feedbackMatch[1]);
+              }
+              
+              // Créer les critères à partir des données extraites
+              const minLength = Math.min(names.length, scores.length, maxPoints.length, feedbacks.length);
+              for (let i = 0; i < minLength; i++) {
+                parsedFeedback.evaluation.criteria.push({
+                  name: names[i],
+                  score: scores[i],
+                  maxPoints: maxPoints[i],
+                  feedback: feedbacks[i]
+                });
+              }
+              
+              console.log('Réparation de dernier recours réussie, données extraites:', 
+                parsedFeedback.evaluation.criteria.length, 'critères');
+            }
+            
+          } catch (manualError) {
+            console.error('Échec de la réparation manuelle:', manualError);
+            throw new Error('Format JSON invalide après toutes les tentatives de réparation');
+          }
+        }
+      }
     } catch (e) {
       console.error("Failed to parse AI feedback JSON:", e);
       throw new Error("Invalid AI response format");

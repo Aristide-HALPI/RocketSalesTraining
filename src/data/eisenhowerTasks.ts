@@ -63,9 +63,9 @@ export const initialTasks: Task[] = [
   },
   {
     id: 11,
-    description: "Vous recevez une publicité pour vous aidez à générer des leads.",
-    correctPriority: "4",
-    explanation: "Vous devez éliminer toute source de distraction et vous concentrer sur vos tâches commerciales."
+    description: "Votre manager vous appelle et vous demandez de passer chez un client cette semaine pour lui apporter du matériel qu'il a commandé car le responsable de la logistique est en congé cette semaine et il ne sait pas organiser la livraison.",
+    correctPriority: "2",
+    explanation: "Vous le planifiez. Effectivement, ici, on ne déléguera pas. Après tout, c'est une très bonne raison pour faire une visite client et entretenir la relation client."
   },
   {
     id: 12,

@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { useEffect, useRef } from 'react';
 import type { DialogueEntry } from '../services/rdvDecideurService';
 
 interface DialogueSectionProps {
@@ -18,6 +19,18 @@ export function DialogueSection({
   isViewMode,
   isFormateur 
 }: DialogueSectionProps) {
+  const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
+
+  // Ajuster la hauteur des textareas au montage et quand le texte change
+  useEffect(() => {
+    textareaRefs.current.forEach((textarea) => {
+      if (textarea) {
+        textarea.style.height = 'auto';
+        textarea.style.height = textarea.scrollHeight + 'px';
+      }
+    });
+  }, [dialogues]);
+
   return (
     <div className="space-y-4">
       {dialogues.map((dialogue, index) => (
@@ -34,8 +47,11 @@ export function DialogueSection({
                   )}
                 </div>
                 <textarea
+                  ref={el => textareaRefs.current[index] = el}
                   value={dialogue.text}
-                  onChange={(e) => onDialogueChange(index, e.target.value)}
+                  onChange={(e) => {
+                    onDialogueChange(index, e.target.value);
+                  }}
                   disabled={isFormateur || isViewMode}
                   className={`w-full p-2 rounded-md border border-gray-300 focus:ring-2 focus:ring-opacity-50 ${
                     dialogue.role === 'commercial' 
@@ -46,8 +62,8 @@ export function DialogueSection({
                   style={{
                     minHeight: '100px',
                     height: 'auto',
-                    resize: 'none',
-                    overflow: 'hidden'
+                    resize: 'vertical',
+                    overflowY: 'hidden'
                   }}
                   onInput={(e) => {
                     const target = e.target as HTMLTextAreaElement;

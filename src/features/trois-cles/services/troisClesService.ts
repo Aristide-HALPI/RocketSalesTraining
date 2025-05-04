@@ -105,17 +105,17 @@ export const SECTIONS_CONFIG: TroisClesSection[] = [
     id: 'questions_explicites',
     title: 'Questions Explicites',
     description: 'Questions explicites pour comprendre le contexte',
-    questionsExplicites: Array(7).fill({
+    questionsExplicites: Array(7).fill(null).map(() => ({
       text: '',
       score: 0,
       trainerComment: ''
-    })
+    }))
   },
   {
     id: 'questions_evocatrices',
     title: 'Questions Évocatrices',
     description: 'Questions évocatrices pour approfondir',
-    questionsEvocatrices: Array(3).fill({
+    questionsEvocatrices: Array(3).fill(null).map(() => ({
       passe: '',
       present: '',
       futur: '',
@@ -125,7 +125,7 @@ export const SECTIONS_CONFIG: TroisClesSection[] = [
       commentPasse: '',
       commentPresent: '',
       commentFutur: ''
-    })
+    }))
   },
   {
     id: 'impacts_temporels',
@@ -151,7 +151,7 @@ export const SECTIONS_CONFIG: TroisClesSection[] = [
     id: 'questions_projectives',
     title: 'Questions Projectives',
     description: 'Questions projectives pour explorer les possibilités',
-    questionsProjectives: Array(5).fill({
+    questionsProjectives: Array(5).fill(null).map(() => ({
       question: '',
       reponseClient: '',
       confirmation: '',
@@ -159,7 +159,7 @@ export const SECTIONS_CONFIG: TroisClesSection[] = [
       besoinSolution: '',
       scores: {},
       comments: {}
-    })
+    }))
   }
 ];
 
@@ -209,136 +209,63 @@ function calculateFinalScore(sections: TroisClesSection[]): number {
     });
   });
 
-  return Math.round((totalPoints / maxPossibleScore) * 50);
-}
-
-function isSectionEmpty(section: TroisClesSection): boolean {
-  const hasEmptyExplicites = section.questionsExplicites?.every(q => !q.text) ?? true;
-  const hasEmptyEvocatrices = section.questionsEvocatrices?.every(q => !q.passe && !q.present && !q.futur) ?? true;
-  const hasEmptyImpacts = section.impactsTemporels?.text ? false : true;
-  const hasEmptyBesoins = section.besoinsSolution?.text ? false : true;
-  const hasEmptyProjectives = section.questionsProjectives?.every(q => !q.question && !q.reponseClient && !q.confirmation && !q.impacts && !q.besoinSolution) ?? true;
-
-  return hasEmptyExplicites && hasEmptyEvocatrices && hasEmptyImpacts && hasEmptyBesoins && hasEmptyProjectives;
-}
-
-function isExerciseEmpty(sections: TroisClesSection[]): boolean {
-  return sections.every(isSectionEmpty);
-}
-
-function isExerciseComplete(sections: TroisClesSection[]): boolean {
-  // Vérifier les questions explicites
-  const hasExplicites = sections[0]?.questionsExplicites?.some(q => q.text.trim());
-
-  // Vérifier les questions évocatrices
-  const hasEvocatrices = sections[1]?.questionsEvocatrices?.some(q => 
-    q.passe.trim() || q.present.trim() || q.futur.trim()
-  );
-
-  // Vérifier les impacts
-  const hasImpacts = sections[2]?.impactsTemporels?.text?.trim();
-
-  // Vérifier les besoins de solution
-  const hasBesoins = sections[3]?.besoinsSolution?.text?.trim();
-
-  // Vérifier les questions projectives
-  const hasProjectives = sections[4]?.questionsProjectives?.some(q => 
-    q.question.trim() || q.reponseClient.trim() || q.confirmation.trim() || 
-    q.impacts.trim() || q.besoinSolution.trim()
-  );
-
-  return !!(hasExplicites && hasEvocatrices && hasImpacts && hasBesoins && hasProjectives);
+  return totalPoints;
 }
 
 export const troisClesService = {
   async getExercise(userId: string): Promise<TroisClesExercise> {
-    try {
-      console.log('Getting exercise for user:', userId);
-      const exerciseRef = doc(db, `users/${userId}/exercises/trois-cles`);
-      const exerciseDoc = await getDoc(exerciseRef);
-      console.log('Exercise doc exists:', exerciseDoc.exists());
-
-      if (!exerciseDoc.exists()) {
-        console.log('Creating new exercise...');
-        const newExercise: TroisClesExercise = {
-          id: 'trois-cles',
-          userId,
-          status: 'not_started',
-          sections: SECTIONS_CONFIG,
-          maxScore: 50,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        
-        const cleanedExercise = cleanUndefined(newExercise);
-        console.log('New exercise to save:', cleanedExercise);
-        
-        await setDoc(exerciseRef, cleanedExercise);
-        return newExercise;
-      }
-
-      const existingExercise = exerciseDoc.data() as TroisClesExercise;
-      console.log('Raw exercise data:', existingExercise);
-
-      // Convertir pending_validation en submitted
-      if (existingExercise.status === 'pending_validation') {
-        console.log('Converting pending_validation status to submitted');
-        existingExercise.status = 'submitted';
-        await updateDoc(exerciseRef, {
-          status: 'submitted',
-          updatedAt: new Date().toISOString()
-        });
-      }
-
-      // Vérifier si l'exercice a un statut valide
-      if (!existingExercise.status) {
-        console.log('Exercise has no status, setting to not_started');
-        existingExercise.status = 'not_started';
-      }
-
-      // Si l'exercice existe mais n'a pas de sections, initialisons-les
-      if (!existingExercise.sections || existingExercise.sections.length === 0) {
-        console.log('Exercise exists but has no sections, initializing...');
-        const updatedExercise = {
-          ...existingExercise,
-          sections: SECTIONS_CONFIG,
-          updatedAt: new Date().toISOString()
-        };
-        await setDoc(exerciseRef, cleanUndefined(updatedExercise));
-        return updatedExercise;
-      }
-
-      // Vérifier le contenu de l'exercice pour déterminer son statut
-      if (existingExercise.status === 'not_started') {
-        const hasContent = existingExercise.sections.some(section => {
-          const hasExplicites = section.questionsExplicites?.some(q => q.text?.trim());
-          const hasEvocatrices = section.questionsEvocatrices?.some(q => 
-            q.passe?.trim() || q.present?.trim() || q.futur?.trim()
-          );
-          const hasImpacts = section.impactsTemporels?.text?.trim();
-          const hasBesoins = section.besoinsSolution?.text?.trim();
-          const hasProjectives = section.questionsProjectives?.some(q => 
-            q.question?.trim() || q.reponseClient?.trim() || q.confirmation?.trim() || 
-            q.impacts?.trim() || q.besoinSolution?.trim()
-          );
-          return !!(hasExplicites || hasEvocatrices || hasImpacts || hasBesoins || hasProjectives);
-        });
-
-        if (hasContent) {
-          console.log('Exercise has content but status is not_started, updating to in_progress');
-          existingExercise.status = 'in_progress';
-          await updateDoc(exerciseRef, {
-            status: 'in_progress',
-            updatedAt: new Date().toISOString()
-          });
-        }
-      }
-
-      return existingExercise;
-    } catch (error) {
-      console.error('Error in getExercise:', error);
-      throw error;
+    if (!userId) {
+      console.error('getExercise called without userId');
+      throw new Error('userId is required');
     }
+
+    console.log('Getting exercise for user:', userId);
+    const docRef = doc(db, `users/${userId}/exercises/trois-cles`);
+    const docSnap = await getDoc(docRef);
+
+    if (docSnap.exists()) {
+      const exercise = docSnap.data() as TroisClesExercise;
+      console.log('Exercise loaded:', {
+        id: exercise.id,
+        userId: exercise.userId,
+        status: exercise.status,
+        sections: exercise.sections.map((s: TroisClesSection) => ({
+          id: s.id,
+          questionsCount: (
+            (s.questionsExplicites?.length || 0) +
+            (s.questionsEvocatrices?.length || 0) +
+            (s.questionsProjectives?.length || 0)
+          ),
+          hasResponses: (
+            s.questionsExplicites?.some(q => q.text?.trim()) ||
+            s.questionsEvocatrices?.some(q => q.passe?.trim() || q.present?.trim() || q.futur?.trim()) ||
+            s.questionsProjectives?.some(q => q.question?.trim())
+          )
+        }))
+      });
+      return exercise;
+    }
+
+    // Créer un nouvel exercice avec des objets distincts pour chaque entrée
+    const newExercise: TroisClesExercise = {
+      id: 'trois-cles',
+      userId,
+      status: 'not_started',
+      sections: SECTIONS_CONFIG.map(section => ({
+        ...section,
+        questionsExplicites: section.questionsExplicites?.map(q => ({ ...q })),
+        questionsEvocatrices: section.questionsEvocatrices?.map(q => ({ ...q })),
+        questionsProjectives: section.questionsProjectives?.map(q => ({ ...q })),
+        impactsTemporels: section.impactsTemporels ? { ...section.impactsTemporels } : undefined,
+        besoinsSolution: section.besoinsSolution ? { ...section.besoinsSolution } : undefined
+      })),
+      maxScore: 50,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    await setDoc(docRef, cleanUndefined(newExercise));
+    return newExercise;
   },
 
   subscribeToExercise(userId: string, callback: (exercise: TroisClesExercise) => void) {

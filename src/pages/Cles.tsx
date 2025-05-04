@@ -129,7 +129,21 @@ export default function Cles() {
     if (targetUserId) {
       loadExercise();
     }
-  }, [targetUserId]);
+
+    // Configurer un listener pour sauvegarder l'exercice avant de quitter la page
+    const handleBeforeUnload = () => {
+      if (exercise && !isSubmitted()) {
+        // Sauvegarder l'exercice dans Firebase avant de quitter
+        troisClesService.updateExercise(targetUserId, exercise);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [targetUserId]); // Retirer exercise et isSubmitted des dépendances pour éviter la boucle infinie
 
   // Sauvegarder les évaluations locales
   useEffect(() => {
@@ -313,6 +327,80 @@ export default function Cles() {
     return !!(hasExplicites || hasEvocatrices || hasImpacts || hasBesoins || hasProjectives);
   }, [exercise]);
 
+  // Fonction pour gérer les modifications des questions explicites
+  const handleQuestionExpliciteChange = (index: number, value: string) => {
+    if (!exercise) return;
+
+    const newExercise = { ...exercise };
+    const section = newExercise.sections[0] || {
+      id: 'questions_explicites',
+      title: 'Questions Explicites',
+      description: 'Questions explicites pour comprendre le contexte',
+      questionsExplicites: []
+    };
+    
+    if (!section.questionsExplicites) {
+      section.questionsExplicites = [];
+    }
+
+    if (!section.questionsExplicites[index]) {
+      section.questionsExplicites[index] = {
+        text: '',
+        score: 0 as Score,
+        trainerComment: ''
+      };
+    }
+
+    section.questionsExplicites[index].text = value;
+    newExercise.sections[0] = section;
+
+    // Mettre à jour l'état local immédiatement
+    setExercise(newExercise);
+    
+    // Utiliser un délai pour éviter trop d'appels API
+    debounceUpdateExercise(newExercise);
+  };
+
+  // Fonction pour gérer les modifications des questions évocatrices
+  const handleQuestionEvocatriceChange = (index: number, field: 'passe' | 'present' | 'futur', value: string) => {
+    if (!exercise) return;
+
+    const newExercise = { ...exercise };
+    const section = newExercise.sections[1] || {
+      id: 'questions_evocatrices',
+      title: 'Questions Évocatrices',
+      description: 'Questions évocatrices pour approfondir',
+      questionsEvocatrices: []
+    };
+    
+    if (!section.questionsEvocatrices) {
+      section.questionsEvocatrices = [];
+    }
+
+    if (!section.questionsEvocatrices[index]) {
+      section.questionsEvocatrices[index] = {
+        passe: '',
+        present: '',
+        futur: '',
+        scoresPasse: 0 as Score,
+        scoresPresent: 0 as Score,
+        scoresFutur: 0 as Score,
+        commentPasse: '',
+        commentPresent: '',
+        commentFutur: ''
+      };
+    }
+
+    section.questionsEvocatrices[index][field] = value;
+    newExercise.sections[1] = section;
+
+    // Mettre à jour l'état local immédiatement
+    setExercise(newExercise);
+    
+    // Utiliser un délai pour éviter trop d'appels API
+    debounceUpdateExercise(newExercise);
+  };
+
   const initializeQuestionProjective = (question: any): any => {
     const initializedQuestion = {
       ...question,
@@ -342,9 +430,16 @@ export default function Cles() {
   };
 
   const handleQuestionProjectiveChange = (index: number, field: string, value: string) => {
-    if (!exercise) return;
+    console.log(`handleQuestionProjectiveChange: index=${index}, field=${field}, value=${value.substring(0, 20)}...`);
+    if (!exercise) {
+      console.error('Exercise is null, cannot update');
+      return;
+    }
 
     const newExercise = { ...exercise };
+    console.log('Current exercise ID:', newExercise.id);
+    console.log('Current exercise userId:', newExercise.userId);
+    
     const section = newExercise.sections[4] || {
       id: 'questions_projectives',
       title: 'Questions Projectives',
@@ -353,6 +448,7 @@ export default function Cles() {
     };
     
     if (!section.questionsProjectives) {
+      console.log('Creating questionsProjectives array');
       section.questionsProjectives = [];
     }
 
@@ -379,19 +475,48 @@ export default function Cles() {
     };
 
     if (!section.questionsProjectives[index]) {
+      console.log(`Creating new question at index ${index}`);
       section.questionsProjectives[index] = emptyQuestion;
     }
 
     const question = initializeQuestionProjective(section.questionsProjectives[index]);
+    console.log('Before update:', question[field]);
     question[field] = value;
+    console.log('After update:', question[field]);
+    
     section.questionsProjectives[index] = question;
     newExercise.sections[4] = section;
 
-    updateExerciseAndStatus(newExercise);
+    // Vérifier que l'ID utilisateur est correctement défini
+    if (!newExercise.userId || newExercise.userId !== targetUserId) {
+      console.log(`Fixing userId: ${newExercise.userId} -> ${targetUserId}`);
+      newExercise.userId = targetUserId;
+    }
+
+    // Mettre à jour l'état local immédiatement
+    setExercise(newExercise);
+    
+    // Utiliser un délai pour éviter trop d'appels API
+    debounceUpdateExercise(newExercise);
   };
 
+  // Fonction pour débouncer les mises à jour
+  const [updateTimeout, setUpdateTimeout] = useState<NodeJS.Timeout | null>(null);
+  
+  const debounceUpdateExercise = useCallback((updatedExercise: TroisClesExercise) => {
+    if (updateTimeout) {
+      clearTimeout(updateTimeout);
+    }
+    
+    const timeoutId = setTimeout(() => {
+      updateExerciseAndStatus(updatedExercise);
+    }, 1000); // Délai de 1 seconde
+    
+    setUpdateTimeout(timeoutId);
+  }, [updateTimeout]);
+
   const updateExerciseAndStatus = useCallback(async (updatedExercise: TroisClesExercise | null) => {
-    if (!updatedExercise) return;
+    if (!updatedExercise || !targetUserId) return;
     
     // Mettre à jour le statut en fonction du contenu
     const hasContent = updatedExercise.sections.some(section => {
@@ -413,14 +538,14 @@ export default function Cles() {
       updatedExercise.status = newStatus;
     }
     
-    setExercise(updatedExercise);
-    
     try {
-      await troisClesService.updateExercise(updatedExercise.id, updatedExercise);
+      // Utiliser targetUserId au lieu de updatedExercise.id
+      await troisClesService.updateExercise(targetUserId, updatedExercise);
+      console.log('Exercice sauvegardé avec succès');
     } catch (error) {
       console.error('Erreur lors de la mise à jour de l\'exercice:', error);
     }
-  }, []);
+  }, [targetUserId]);
 
   const updateLocalEvaluations = useCallback((type: string, index: number, subType: string | null, evaluation: LocalEvaluation) => {
     const key = `${type}_${index}${subType ? `_${subType}` : ''}`;
@@ -645,32 +770,7 @@ export default function Cles() {
                   </label>
                   <Textarea
                     value={question.text || ''}
-                    onChange={(e) => {
-                      const newExercise = { ...exercise };
-                      if (!newExercise.sections) {
-                        newExercise.sections = [];
-                      }
-                      if (!newExercise.sections[0]) {
-                        newExercise.sections[0] = {
-                          id: 'questions_explicites',
-                          title: 'Questions Explicites',
-                          description: 'Questions explicites pour comprendre le contexte',
-                          questionsExplicites: []
-                        };
-                      }
-                      if (!newExercise.sections[0].questionsExplicites) {
-                        newExercise.sections[0].questionsExplicites = [];
-                      }
-                      if (!newExercise.sections[0].questionsExplicites[index]) {
-                        newExercise.sections[0].questionsExplicites[index] = {
-                          text: '',
-                          score: 0 as Score,
-                          trainerComment: ''
-                        };
-                      }
-                      newExercise.sections[0].questionsExplicites[index].text = e.target.value;
-                      updateExerciseAndStatus(newExercise);
-                    }}
+                    onChange={(e) => handleQuestionExpliciteChange(index, e.target.value)}
                     className={`w-full min-h-[80px] resize-none rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                     placeholder="Votre question..."
                     disabled={isAnswerDisabled()}
@@ -698,36 +798,7 @@ export default function Cles() {
                     <label className="block text-sm font-medium text-gray-600 mb-2">Passé</label>
                     <Textarea
                       value={question?.passe || ''}
-                      onChange={(e) => {
-                        if (!exercise) return;
-                        const newExercise = { ...exercise };
-                        if (!newExercise.sections[1]) {
-                          newExercise.sections[1] = {
-                            id: 'questions_evocatrices',
-                            title: 'Questions Évocatrices',
-                            description: 'Questions pour évoquer les situations',
-                            questionsEvocatrices: []
-                          };
-                        }
-                        if (!newExercise.sections[1].questionsEvocatrices) {
-                          newExercise.sections[1].questionsEvocatrices = [];
-                        }
-                        if (!newExercise.sections[1].questionsEvocatrices[index]) {
-                          newExercise.sections[1].questionsEvocatrices[index] = {
-                            passe: '',
-                            present: '',
-                            futur: '',
-                            scoresPasse: 0 as Score,
-                            scoresPresent: 0 as Score,
-                            scoresFutur: 0 as Score,
-                            commentPasse: '',
-                            commentPresent: '',
-                            commentFutur: ''
-                          };
-                        }
-                        newExercise.sections[1].questionsEvocatrices[index].passe = e.target.value;
-                        updateExerciseAndStatus(newExercise);
-                      }}
+                      onChange={(e) => handleQuestionEvocatriceChange(index, 'passe', e.target.value)}
                       className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                       placeholder="Question sur le passé..."
                       disabled={isAnswerDisabled()}
@@ -744,36 +815,7 @@ export default function Cles() {
                     <label className="block text-sm font-medium text-gray-600 mb-2">Présent</label>
                     <Textarea
                       value={question?.present || ''}
-                      onChange={(e) => {
-                        if (!exercise) return;
-                        const newExercise = { ...exercise };
-                        if (!newExercise.sections[1]) {
-                          newExercise.sections[1] = {
-                            id: 'questions_evocatrices',
-                            title: 'Questions Évocatrices',
-                            description: 'Questions pour évoquer les situations',
-                            questionsEvocatrices: []
-                          };
-                        }
-                        if (!newExercise.sections[1].questionsEvocatrices) {
-                          newExercise.sections[1].questionsEvocatrices = [];
-                        }
-                        if (!newExercise.sections[1].questionsEvocatrices[index]) {
-                          newExercise.sections[1].questionsEvocatrices[index] = {
-                            passe: '',
-                            present: '',
-                            futur: '',
-                            scoresPasse: 0 as Score,
-                            scoresPresent: 0 as Score,
-                            scoresFutur: 0 as Score,
-                            commentPasse: '',
-                            commentPresent: '',
-                            commentFutur: ''
-                          };
-                        }
-                        newExercise.sections[1].questionsEvocatrices[index].present = e.target.value;
-                        updateExerciseAndStatus(newExercise);
-                      }}
+                      onChange={(e) => handleQuestionEvocatriceChange(index, 'present', e.target.value)}
                       className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                       placeholder="Question sur le présent..."
                       disabled={isAnswerDisabled()}
@@ -790,36 +832,7 @@ export default function Cles() {
                     <label className="block text-sm font-medium text-gray-600 mb-2">Futur</label>
                     <Textarea
                       value={question?.futur || ''}
-                      onChange={(e) => {
-                        if (!exercise) return;
-                        const newExercise = { ...exercise };
-                        if (!newExercise.sections[1]) {
-                          newExercise.sections[1] = {
-                            id: 'questions_evocatrices',
-                            title: 'Questions Évocatrices',
-                            description: 'Questions pour évoquer les situations',
-                            questionsEvocatrices: []
-                          };
-                        }
-                        if (!newExercise.sections[1].questionsEvocatrices) {
-                          newExercise.sections[1].questionsEvocatrices = [];
-                        }
-                        if (!newExercise.sections[1].questionsEvocatrices[index]) {
-                          newExercise.sections[1].questionsEvocatrices[index] = {
-                            passe: '',
-                            present: '',
-                            futur: '',
-                            scoresPasse: 0 as Score,
-                            scoresPresent: 0 as Score,
-                            scoresFutur: 0 as Score,
-                            commentPasse: '',
-                            commentPresent: '',
-                            commentFutur: ''
-                          };
-                        }
-                        newExercise.sections[1].questionsEvocatrices[index].futur = e.target.value;
-                        updateExerciseAndStatus(newExercise);
-                      }}
+                      onChange={(e) => handleQuestionEvocatriceChange(index, 'futur', e.target.value)}
                       className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                       placeholder="Question sur le futur..."
                       disabled={isAnswerDisabled()}

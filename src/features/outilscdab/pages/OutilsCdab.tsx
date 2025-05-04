@@ -9,9 +9,8 @@ import html2canvas from 'html2canvas';
 
 export default function OutilsCdab() {
   const { currentUser, userProfile, loading } = useAuth();
-  const { currentExercise: cdabExercise, outilsExercise, updateOutilsExercise, updateExercise } = useCdabStore();
+  const { outilsExercise, updateOutilsExercise, updateExercise } = useCdabStore();
   const [isLoading, setIsLoading] = useState(true);
-  const [isInitialized, setIsInitialized] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -39,16 +38,65 @@ export default function OutilsCdab() {
       return;
     }
 
+    let unsubscribeCdab: (() => void) | undefined;
+
     const loadExercises = async () => {
       try {
         const cdabService = (await import('../../../features/cdab/services/cdabService')).cdabService;
+        
+        // Charger initialement l'exercice CDAB
         const cdabExerciseData = await cdabService.getExercise(targetUserId);
         updateExercise(cdabExerciseData);
-
+        
+        // Charger l'exercice Outils CDAB
         const outilsExerciseData = await outilsCdabService.getExercise(targetUserId);
         updateOutilsExercise(outilsExerciseData);
+        
+        // Souscrire aux mises à jour de l'exercice CDAB en temps réel
+        unsubscribeCdab = cdabService.subscribeToExercise(targetUserId, (updatedCdabExercise) => {
+          console.log('CDAB exercise updated in real-time:', updatedCdabExercise.id);
+          updateExercise(updatedCdabExercise);
+          
+          // Afficher un toast pour informer l'utilisateur
+          toast.success('Synchronisation en temps réel avec CDAB', {
+            id: 'cdab-sync',
+            duration: 2000
+          });
+          
+          // Synchroniser automatiquement avec Outils CDAB
+          const currentOutilsExercise = useCdabStore.getState().outilsExercise;
+          if (currentOutilsExercise) {
+            const updatedOutilsExercise = {
+              ...currentOutilsExercise,
+              solution: updatedCdabExercise.characteristics.map((char, index) => ({
+                ...currentOutilsExercise.solution[index],
+                characteristic: char.description || '',
+                definition: char.definition || '',
+                advantages: char.advantages || '',
+                benefits: char.benefits || '',
+                proofs: char.proofs || ''
+              })),
+              qualification: updatedCdabExercise.characteristics.map((char, index) => ({
+                ...currentOutilsExercise.qualification[index],
+                problems: char.problems || '',
+                problemImpact: (char.impact || '') as string,
+                clientConfirmation: (char.confirmation || '') as string,
+                acceptedBenefit: (char.benefit || '') as string
+              }))
+            };
+            
+            // Mettre à jour le store
+            updateOutilsExercise(updatedOutilsExercise);
+            
+            // Sauvegarder dans Firebase
+            outilsCdabService.updateExercise(targetUserId, updatedOutilsExercise)
+              .catch(error => {
+                console.error('Erreur lors de la synchronisation automatique:', error);
+                toast.error('Erreur lors de la synchronisation avec CDAB');
+              });
+          }
+        });
 
-        setIsInitialized(true);
         setIsLoading(false);
       } catch (error) {
         console.error('Erreur lors du chargement des exercices:', error);
@@ -58,40 +106,17 @@ export default function OutilsCdab() {
     };
 
     loadExercises();
-  }, [currentUser?.uid, targetUserId, loading, isFormateur, studentIdParam]);
-
-  useEffect(() => {
-    if (!cdabExercise || !outilsExercise || !targetUserId || !isInitialized || isLoading) return;
-
-    const updatedExercise: OutilsCdabExercise = {
-      ...outilsExercise,
-      solution: cdabExercise.characteristics.map((char, index) => ({
-        ...outilsExercise.solution[index],
-        characteristic: char.description || '',
-        definition: char.definition || '',
-        advantages: char.advantages || '',
-        benefits: char.benefits || '',
-        proofs: char.proofs || ''
-      })),
-      qualification: cdabExercise.characteristics.map((char, index) => ({
-        ...outilsExercise.qualification[index],
-        problems: char.problems || '',
-        problemImpact: (char.impact || '') as string,
-        clientConfirmation: (char.confirmation || '') as string,
-        acceptedBenefit: (char.benefit || '') as string
-      }))
+    
+    // Nettoyer les souscriptions quand le composant est démonté
+    return () => {
+      if (unsubscribeCdab && typeof unsubscribeCdab === 'function') {
+        unsubscribeCdab();
+        console.log('Unsubscribed from CDAB real-time updates');
+      }
     };
+  }, [currentUser?.uid, targetUserId, loading, isFormateur, studentIdParam, updateExercise, updateOutilsExercise, navigate]);
 
-    const hasChanges = JSON.stringify(updatedExercise) !== JSON.stringify(outilsExercise);
-
-    if (hasChanges) {
-      outilsCdabService.updateExercise(targetUserId, updatedExercise)
-        .catch(error => {
-          console.error('Erreur lors de la mise à jour:', error);
-          toast.error('Erreur lors de la synchronisation avec CDAB');
-        });
-    }
-  }, [cdabExercise, isInitialized]);
+  // La synchronisation est maintenant gérée en temps réel par le listener dans le premier useEffect
 
   const handleQualificationChange = async (index: number, field: keyof QualificationItem, value: string, event: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (!outilsExercise) return;
@@ -219,7 +244,7 @@ export default function OutilsCdab() {
                         conséquences du problème
                       </div>
                       <textarea
-                        className="flex-grow p-2 rounded bg-white/50 text-gray-700 min-h-[100px] resize-none overflow-hidden"
+                        className="flex-grow p-2 rounded bg-white text-gray-700 min-h-[100px] resize-none overflow-hidden border border-gray-200"
                         value={outilsExercise.qualification[index].problemImpact}
                         onChange={(e) => handleQualificationChange(index, 'problemImpact', e.target.value, e)}
                         placeholder="Décrivez l'impact du problème..."
@@ -235,7 +260,7 @@ export default function OutilsCdab() {
                         validation du problème
                       </div>
                       <textarea
-                        className="flex-grow p-2 rounded bg-white/50 text-gray-700 min-h-[100px] resize-none overflow-hidden"
+                        className="flex-grow p-2 rounded bg-white text-gray-700 min-h-[100px] resize-none overflow-hidden border border-gray-200"
                         value={outilsExercise.qualification[index].clientConfirmation}
                         onChange={(e) => handleQualificationChange(index, 'clientConfirmation', e.target.value, e)}
                         placeholder="Notez la confirmation du prospect..."
@@ -251,7 +276,7 @@ export default function OutilsCdab() {
                         bénéfice reconnu par le prospect
                       </div>
                       <textarea
-                        className="flex-grow p-2 rounded bg-white/50 text-gray-700 min-h-[100px] resize-none overflow-hidden"
+                        className="flex-grow p-2 rounded bg-white text-gray-700 min-h-[100px] resize-none overflow-hidden border border-gray-200"
                         value={outilsExercise.qualification[index].acceptedBenefit}
                         onChange={(e) => handleQualificationChange(index, 'acceptedBenefit', e.target.value, e)}
                         placeholder="Notez le bénéfice accepté..."

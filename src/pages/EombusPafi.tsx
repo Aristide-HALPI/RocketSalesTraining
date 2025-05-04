@@ -404,7 +404,7 @@ export default function EombusPafi() {
                                         sections: updatedSections
                                       });
                                     }}
-                                    disabled={!canEdit || isEvaluationDisabled}
+                                    disabled={!canEdit}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
                                   >
                                     <option value="présent">Présent</option>

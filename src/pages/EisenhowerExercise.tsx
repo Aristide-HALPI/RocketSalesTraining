@@ -85,10 +85,18 @@ export const EisenhowerExercise: FC = () => {
     const total = initialTasks.length;
     const answered = answers.filter(a => a.selectedPriority !== null).length;
     
-    // Points uniquement pour les priorités correctes
+    // Points pour les priorités correctes, en tenant compte des réponses multiples possibles
     const correctAnswers = initialTasks.reduce((acc, t) => {
       const answer = answers.find(a => a.taskId === t.id);
-      return answer?.selectedPriority === Number(t.correctPriority) ? acc + 1 : acc;
+      if (!answer || answer.selectedPriority === null) return acc;
+      
+      // Vérifier si la question a plusieurs réponses possibles (ex: "1 ou 2", "2 ou 3")
+      if (t.correctPriority.includes(' ou ')) {
+        const possibleAnswers = t.correctPriority.split(' ou ').map(p => Number(p));
+        return possibleAnswers.includes(answer.selectedPriority) ? acc + 1 : acc;
+      } else {
+        return answer.selectedPriority === Number(t.correctPriority) ? acc + 1 : acc;
+      }
     }, 0);
 
     const percentage = (correctAnswers / total) * 100;
@@ -228,9 +236,13 @@ export const EisenhowerExercise: FC = () => {
           {initialTasks.map((task) => (
             <div key={task.id} className={`p-6 border rounded-lg ${
               showResults 
-                ? answers.find(a => a.taskId === task.id)?.selectedPriority === Number(task.correctPriority)
-                  ? 'bg-green-50 border-green-200'
-                  : 'bg-red-50 border-red-200'
+                ? task.correctPriority.includes(' ou ')
+                  ? task.correctPriority.split(' ou ').map(p => Number(p)).includes(answers.find(a => a.taskId === task.id)?.selectedPriority || 0)
+                    ? 'bg-green-50 border-green-200'
+                    : 'bg-red-50 border-red-200'
+                  : answers.find(a => a.taskId === task.id)?.selectedPriority === Number(task.correctPriority)
+                    ? 'bg-green-50 border-green-200'
+                    : 'bg-red-50 border-red-200'
                 : 'bg-white border-gray-200'
             }`}>
               <p className="text-gray-800 mb-4">{task.description}</p>
