@@ -168,20 +168,29 @@ export default function Presentation() {
   };
 
   const handleAIEvaluation = async () => {
-    if (!currentExercise?.content || !targetUserId || !userProfile?.organizationId) {
-      toast.error('Impossible de lancer l\'évaluation IA');
-      return;
-    }
+    if (!isFormateur || !targetUserId) return;
 
+    setIsEvaluating(true);
     try {
-      setIsEvaluating(true);
-      await presentationService.evaluateWithAI(targetUserId, userProfile.organizationId);
-      toast.success('Évaluation IA terminée avec succès !');
+      await presentationService.evaluateWithAI(targetUserId, userProfile?.organizationId || '');
+      toast.success('Évaluation IA effectuée');
     } catch (error) {
-      console.error('Error in AI evaluation:', error);
+      console.error('Error during AI evaluation:', error);
       toast.error('Erreur lors de l\'évaluation IA');
     } finally {
       setIsEvaluating(false);
+    }
+  };
+
+  const handleResetEvaluation = async () => {
+    if (!isFormateur || !targetUserId) return;
+
+    try {
+      await presentationService.resetEvaluation(targetUserId);
+      toast.success('Évaluation réinitialisée, vous pouvez maintenant modifier la note et le commentaire');
+    } catch (error) {
+      console.error('Error during evaluation reset:', error);
+      toast.error('Erreur lors de la réinitialisation de l\'évaluation');
     }
   };
 
@@ -204,10 +213,10 @@ export default function Presentation() {
   const renderTrainerActions = () => {
     if (!isFormateur || !currentExercise) return null;
 
-    const isEvaluated = currentExercise.status === 'evaluated';
+    const isEvaluated = currentExercise.status === 'evaluated' || currentExercise.status === 'published';
 
     return (
-      <div className="flex justify-end space-x-4 mt-6">
+      <div className="flex flex-wrap justify-end gap-4 mt-6">
         <button
           onClick={handleAIEvaluation}
           disabled={isEvaluating || isEvaluated}
@@ -236,6 +245,14 @@ export default function Presentation() {
         >
           Publier l'évaluation
         </button>
+        {isEvaluated && (
+          <button
+            onClick={handleResetEvaluation}
+            className="bg-yellow-600 text-white px-6 py-2 rounded-md hover:bg-yellow-700"
+          >
+            Modifier l'évaluation
+          </button>
+        )}
       </div>
     );
   };
