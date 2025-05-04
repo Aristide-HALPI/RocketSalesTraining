@@ -104,6 +104,18 @@ export default function Presentation() {
     }
   };
 
+  const handleResetEvaluation = async () => {
+    if (!isFormateur || !targetUserId) return;
+
+    try {
+      await presentationService.resetEvaluation(targetUserId);
+      toast.success('Évaluation réinitialisée, vous pouvez maintenant modifier la note et le commentaire');
+    } catch (error) {
+      console.error('Error during evaluation reset:', error);
+      toast.error('Erreur lors de la réinitialisation de l\'évaluation');
+    }
+  };
+
   if (loading) {
     return <div>Chargement...</div>;
   }
@@ -181,21 +193,30 @@ export default function Presentation() {
             </div>
 
             {/* Boutons d'action */}
-            <div className="flex space-x-4">
+            <div className="flex space-x-4 flex-wrap">
               <button
                 onClick={handleAIEvaluation}
                 disabled={!isFormateur || currentExercise?.status === ExerciseStatus.Evaluated}
-                className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2 rounded-md hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50"
+                className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2 rounded-md hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 mb-2"
               >
                 Correction IA
               </button>
               <button
                 onClick={handleEvaluate}
                 disabled={!canEvaluate}
-                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 disabled:opacity-50"
+                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 disabled:opacity-50 mb-2"
               >
                 Valider l'évaluation
               </button>
+              {/* Bouton de réinitialisation de l'évaluation */}
+              {(currentExercise?.status === ExerciseStatus.Evaluated || currentExercise?.status === ExerciseStatus.Published) && (
+                <button
+                  onClick={handleResetEvaluation}
+                  className="bg-yellow-600 text-white px-4 py-2 rounded-md hover:bg-yellow-700 mb-2"
+                >
+                  Modifier l'évaluation
+                </button>
+              )}
             </div>
           </div>
         )}
