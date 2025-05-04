@@ -284,6 +284,48 @@ export const presentationService = {
       console.error('Error in AI evaluation for user:', userId, error);
       throw error;
     }
+  },
+
+  /**
+   * Permet de réinitialiser l'évaluation d'un exercice déjà évalué pour permettre au formateur de modifier la note et le commentaire
+   * @param userId ID de l'utilisateur dont l'exercice doit être réinitialisé
+   */
+  async resetEvaluation(userId: string): Promise<void> {
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
+
+    console.log('Resetting evaluation for user:', userId);
+    
+    try {
+      const exerciseRef = doc(db, `users/${userId}/exercises`, 'presentation');
+      const exerciseDoc = await getDoc(exerciseRef);
+
+      if (!exerciseDoc.exists()) {
+        console.error('No exercise found to reset evaluation for user:', userId);
+        throw new Error('No exercise found to reset evaluation');
+      }
+
+      const exerciseData = exerciseDoc.data() as PresentationExercise;
+      
+      // Vérifier si l'exercice est déjà évalué
+      if (exerciseData.status !== ExerciseStatus.Evaluated && exerciseData.status !== ExerciseStatus.Published) {
+        console.error('Exercise is not evaluated, cannot reset evaluation for user:', userId);
+        throw new Error('Exercise is not evaluated, cannot reset evaluation');
+      }
+
+      // Conserver les données existantes mais changer le statut pour permettre l'édition
+      await updateDoc(exerciseRef, {
+        status: ExerciseStatus.Submitted, // Remettre au statut "Soumis" pour permettre l'édition
+        updatedAt: serverTimestamp()
+        // Ne pas effacer la note ni le commentaire pour permettre de les modifier
+      });
+
+      console.log('Evaluation reset successfully for user:', userId);
+    } catch (error) {
+      console.error('Error resetting evaluation for user:', userId, error);
+      throw error;
+    }
   }
 };
 
