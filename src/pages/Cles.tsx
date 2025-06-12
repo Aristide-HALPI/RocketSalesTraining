@@ -297,6 +297,24 @@ export default function Cles() {
     }
   };
 
+  const handleForceSubmit = async () => {
+    if (!exercise) return;
+    
+    try {
+      // Mettre à jour le statut de l'exercice à 'submitted'
+      await troisClesService.submitExercise(targetUserId);
+      
+      // Recharger l'exercice pour obtenir le statut mis à jour
+      const updatedExercise = await troisClesService.getExercise(targetUserId);
+      setExercise(updatedExercise);
+      
+      alert('L\'exercice a été marqué comme soumis avec succès.');
+    } catch (error) {
+      console.error('Erreur lors du forçage de la soumission:', error);
+      alert('Une erreur est survenue lors du forçage de la soumission');
+    }
+  };
+
   const isAnswerDisabled = useCallback(() => {
     if (!exercise) return true;
     if (isTrainer || isAdmin) return true;  // Les formateurs et admins ne peuvent pas modifier les réponses
@@ -697,6 +715,15 @@ export default function Cles() {
             <div className="flex flex-col space-y-4">
               <h2 className="text-lg font-semibold text-gray-900">Mode Formateur</h2>
               <div className="flex flex-wrap gap-4">
+                {exercise?.status === 'in_progress' && (
+                  <Button
+                    onClick={handleForceSubmit}
+                    className="bg-amber-600 text-white hover:bg-amber-700"
+                    disabled={loading}
+                  >
+                    Forcer la soumission
+                  </Button>
+                )}
                 <Button
                   onClick={() => handleAIEvaluation('explicite')}
                   className="bg-violet-600 text-white hover:bg-violet-700 relative"
