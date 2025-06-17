@@ -126,7 +126,8 @@ class RoleplayService {
       status: 'not_started',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      evaluatedBy: undefined
+      // Supprimer la propriété evaluatedBy si elle est undefined
+      // evaluatedBy: undefined
     };
   }
 
