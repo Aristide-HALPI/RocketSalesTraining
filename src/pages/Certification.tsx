@@ -22,6 +22,23 @@ export default function Certification() {
     }
   }, [userId, currentUser?.uid, navigate, loading]);
 
+  // Stocker l'URL de référence lors du chargement initial
+  useEffect(() => {
+    // Capturer l'URL de référence seulement si elle existe et n'est pas déjà une page de certification
+    const referrer = document.referrer;
+    if (referrer && !referrer.includes('/certification')) {
+      // Extraire le chemin de l'URL complète
+      try {
+        const url = new URL(referrer);
+        const path = url.pathname + url.search;
+        sessionStorage.setItem('certificationReferrer', path);
+        console.log('URL de référence stockée:', path);
+      } catch (e) {
+        console.error('Erreur lors de l\'analyse de l\'URL de référence:', e);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     const fetchData = async () => {
       if (!userId) return;
@@ -96,10 +113,31 @@ export default function Certification() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-4xl font-bold text-blue-600 mb-8">
-          Votre score pour la Certification
-        </h1>
+      <div className="max-w-5xl mx-auto py-8 px-4">
+        <div className="flex justify-between items-center mb-8">
+          <button 
+            onClick={() => {
+              // Solution directe : si l'utilisateur n'est pas l'utilisateur courant, c'est un formateur qui consulte
+              // la certification d'un apprenant, donc on le renvoie vers la page des exercices de cet apprenant
+              if (userId && userId !== currentUser?.uid) {
+                navigate(`/student-exercises/${userId}`);
+              } else {
+                // Sinon c'est un apprenant qui consulte sa propre certification, on le renvoie à l'accueil
+                navigate('/');
+              }
+            }} 
+            className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded inline-flex items-center"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Retour
+          </button>
+          <h1 className="text-4xl font-bold text-blue-600">
+            Votre score pour la Certification
+          </h1>
+          <div className="w-24"></div> {/* Élément vide pour équilibrer la mise en page */}
+        </div>
 
         <div className="bg-white rounded-lg shadow-lg overflow-hidden">
           {/* En-tête du tableau */}

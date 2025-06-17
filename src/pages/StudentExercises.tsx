@@ -326,7 +326,7 @@ export default function StudentExercises() {
         navigate(`/points-role-final?userId=${userId}`);
         break;
       case 'certification':
-        navigate(`/certification?userId=${userId}`);
+        navigate(`/certification/${userId}`);
         break;
       case 'company':
         navigate(`/company?userId=${userId}`);
