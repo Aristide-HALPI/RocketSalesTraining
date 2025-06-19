@@ -69,7 +69,8 @@ export const EisenhowerExercise: FC = () => {
           setIsSubmitted(true);
         } else {
           console.error('No exercise data found for student:', studentId);
-          setError(`Aucun exercice trouvé pour cet apprenant (ID: ${studentId})`)
+          setError(`Cet apprenant n'a pas encore soumis son exercice de matrice d'Eisenhower.`)
+          // Afficher un message plus convivial au lieu de montrer l'ID technique
         }
       }
     };
