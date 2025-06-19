@@ -10,7 +10,7 @@ import { useLocation } from 'react-router-dom';
 export const EisenhowerExercise: FC = () => {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
-  const viewMode = searchParams.get('mode') === 'view';
+  const viewMode = true; // Toujours considérer qu'on est en mode vue si un userId est présent
   const studentId = searchParams.get('userId');
 
   const [answers, setAnswers] = useState<TaskAnswer[]>([]);
@@ -20,6 +20,7 @@ export const EisenhowerExercise: FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isAlreadySubmitted, setIsAlreadySubmitted] = useState(false);
+  const [savedScore, setSavedScore] = useState<number | null>(null);
 
   const { draftData, saveDraft } = useExercisePersistence('eisenhower');
 
@@ -29,42 +30,59 @@ export const EisenhowerExercise: FC = () => {
     }
   }, [draftData, isSubmitted]);
 
-  useEffect(() => {
-    const checkSubmission = async () => {
-      if (!auth.currentUser?.uid) return;
-      
-      const exerciseId = `eisenhower_${auth.currentUser.uid}`;
-      const exerciseRef = doc(db, 'exercises', exerciseId);
-      const exerciseSnap = await getDoc(exerciseRef);
+  // Fonction pour vérifier si l'utilisateur courant a déjà soumis l'exercice
+  const checkSubmission = async () => {
+    if (!auth.currentUser?.uid) return;
+    
+    const exerciseId = `eisenhower_${auth.currentUser.uid}`;
+    const exerciseRef = doc(db, 'exercises', exerciseId);
+    const exerciseSnap = await getDoc(exerciseRef);
 
-      if (exerciseSnap.exists()) {
-        setIsAlreadySubmitted(true);
-        setIsSubmitted(true);
-        setAnswers(exerciseSnap.data().answers || []);
-        setShowResults(true);
-      }
-    };
-
-    checkSubmission();
-  }, []);
+    console.log('Checking submission for current user:', auth.currentUser.uid);
+    
+    if (exerciseSnap.exists()) {
+      const data = exerciseSnap.data();
+      console.log('Found exercise data for current user:', data);
+      setIsAlreadySubmitted(true);
+      setIsSubmitted(true);
+      setAnswers(data.answers || []);
+      setSavedScore(data.score || null);
+      setShowResults(true);
+    } else {
+      console.log('No exercise data found for current user');
+    }
+  };
 
   useEffect(() => {
     const loadStudentExercise = async () => {
-      if (viewMode && studentId) {
+      if (studentId) {
+        console.log('Loading exercise for student ID:', studentId);
         const exerciseRef = doc(db, 'exercises', `eisenhower_${studentId}`);
         const exerciseDoc = await getDoc(exerciseRef);
         
         if (exerciseDoc.exists()) {
           const data = exerciseDoc.data();
+          console.log('Found exercise data for student:', data);
           setAnswers(data.answers || []);
+          setSavedScore(data.score || null);
           setShowResults(true);
           setIsSubmitted(true);
+        } else {
+          console.error('No exercise data found for student:', studentId);
+          setError(`Aucun exercice trouvé pour cet apprenant (ID: ${studentId})`)
         }
       }
     };
 
-    loadStudentExercise();
-  }, [viewMode, studentId]);
+    // Si on a un studentId, on charge l'exercice de l'étudiant
+    if (studentId) {
+      loadStudentExercise();
+    } 
+    // Sinon, on vérifie si l'utilisateur courant a déjà soumis l'exercice
+    else if (auth.currentUser?.uid) {
+      checkSubmission();
+    }
+  }, [studentId]);
 
   const handlePriorityChange = (taskId: number, priority: Priority) => {
     const newAnswers = answers.map(a => 
@@ -168,7 +186,16 @@ export const EisenhowerExercise: FC = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <BackButton />
+      <BackButton onClick={() => {
+        // Si on a un userId dans l'URL, c'est qu'on consulte l'exercice d'un apprenant
+        if (studentId) {
+          // Rediriger vers la liste des exercices de l'apprenant
+          window.location.href = `/student-exercises/${studentId}`;
+        } else {
+          // Sinon, comportement par défaut (retour à la page précédente)
+          window.history.back();
+        }
+      }} />
 
       {error && (
         <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
@@ -295,7 +322,7 @@ export const EisenhowerExercise: FC = () => {
               </div>
               <div>
                 <p className="text-gray-600">Score final</p>
-                <p className="text-2xl font-bold">{calculateScore().scaledScore}/30</p>
+                <p className="text-2xl font-bold">{savedScore !== null ? savedScore : calculateScore().scaledScore}/30</p>
               </div>
             </div>
           </div>
