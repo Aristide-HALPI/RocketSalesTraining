@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -44,10 +44,46 @@ export function ExerciseTemplate({
     fetchUserName();
   }, [userId]);
 
+  const navigate = useNavigate();
+
+  const handleBackClick = () => {
+    // Si on a un userId dans l'URL, c'est qu'on consulte l'exercice d'un apprenant
+    if (userId) {
+      // Rediriger vers la liste des exercices de l'apprenant
+      navigate(`/student-exercises/${userId}`);
+    } else {
+      // Sinon, comportement par défaut (retour à la page précédente)
+      window.history.back();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 w-full">
       <div className="w-full p-8">
         <div className="max-w-7xl mx-auto">
+          {/* Bouton de retour */}
+          <div className="py-4">
+            <button
+              onClick={handleBackClick}
+              className="inline-flex items-center text-teal-600 hover:text-teal-700"
+            >
+              <svg
+                className="w-5 h-5 mr-2"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 19l-7-7 7-7"
+                />
+              </svg>
+              Retour au tableau de bord
+            </button>
+          </div>
           <div className="bg-white shadow rounded-lg overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200">
               <div className="flex justify-between items-center">
