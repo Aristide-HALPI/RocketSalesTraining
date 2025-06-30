@@ -386,12 +386,51 @@ export const troisClesService = {
       console.log('🔍 Détail des sections:', optimizedExercise.sections.map(s => s.title));
       console.log('🔍 Taille des données envoyées:', JSON.stringify(optimizedExercise).length, 'caractères');
       
-      const aiResponse = await AIService.evaluateExercise({
-        type: 'qles', // Utiliser le type spécifique 'qles' pour l'exercice 3 clés
-        content: JSON.stringify(optimizedExercise),
-        organizationId: exercise.organizationId || 'default',
-        botId: exercise.botId || import.meta.env.VITE_QLES_BOT_ID || 'default'
-      });
+      // Fonction pour appeler l'API avec retry
+      const callAIWithRetry = async (maxRetries = 3, timeout = 60000): Promise<AIEvaluationResponse> => {
+        let lastError: Error | unknown = new Error('Erreur inconnue');
+        
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            console.log(`🔄 Tentative d'évaluation IA ${attempt}/${maxRetries}`);
+            
+            // Créer une promesse avec timeout
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              setTimeout(() => reject(new Error('Timeout dépassé')), timeout);
+            });
+            
+            // Appeler l'API avec un timeout
+            const responsePromise = AIService.evaluateExercise({
+              type: 'qles', // Utiliser le type spécifique 'qles' pour l'exercice 3 clés
+              content: JSON.stringify(optimizedExercise),
+              organizationId: exercise.organizationId || 'default',
+              botId: exercise.botId || import.meta.env.VITE_QLES_BOT_ID || 'default'
+            });
+            
+            // Race entre le timeout et la réponse
+            return await Promise.race([responsePromise, timeoutPromise]);
+          } catch (error: unknown) {
+            lastError = error;
+            console.error(`❌ Échec de la tentative ${attempt}:`, error);
+            
+            // Si c'est une erreur 504, on réessaie
+            const is504Error = error instanceof Error && error.message.includes('504');
+            if (is504Error && attempt < maxRetries) {
+              console.log(`⏱️ Attente avant nouvelle tentative (${attempt + 1}/${maxRetries})...`);
+              await new Promise(resolve => setTimeout(resolve, 2000 * attempt)); // Attente progressive
+              continue;
+            }
+            
+            // Si c'est la dernière tentative ou une autre erreur, on la propage
+            throw error;
+          }
+        }
+        
+        throw lastError;
+      };
+      
+      // Appeler l'API avec retry et timeout étendu
+      const aiResponse = await callAIWithRetry(3, 90000); // 3 tentatives, 90 secondes de timeout
 
       // Si c'était une évaluation partielle, fusionner avec l'évaluation existante
       let updatedAiEvaluation = aiResponse;
@@ -402,10 +441,10 @@ export const troisClesService = {
         const newResponses = aiResponse.evaluation?.responses || [];
         
         // Identifier les sections des nouvelles réponses
-        const newSections = new Set(newResponses.map(r => r.section));
+        const newSections = new Set(newResponses.map((r: { section: string }) => r.section));
         
         // Conserver uniquement les réponses des sections qui ne sont pas dans les nouvelles réponses
-        const preservedResponses = previousResponses.filter(r => !newSections.has(r.section));
+        const preservedResponses = previousResponses.filter((r: { section: string }) => !newSections.has(r.section));
         
         // Fusionner les réponses préservées avec les nouvelles
         const mergedResponses = [...preservedResponses, ...newResponses];
