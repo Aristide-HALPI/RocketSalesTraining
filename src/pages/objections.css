@@ -1,0 +1,32 @@
+/* Style personnalisé pour les sélecteurs dans la page Objections */
+
+/* Augmente la largeur des options dans les listes déroulantes */
+select option {
+  white-space: normal;
+  word-wrap: break-word;
+  max-width: none;
+  width: auto;
+}
+
+/* Style pour les sélecteurs */
+select {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Style pour les options sélectionnées */
+select:not([multiple]) option:checked {
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+/* Ajout d'un style pour les options au survol */
+select option:hover {
+  background-color: #f3f4f6;
+}
+
+/* Ajout d'un style pour les options sélectionnées */
+select option:checked {
+  background-color: #e5e7eb;
+}

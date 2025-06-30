@@ -91,7 +91,7 @@ function processAIFeedback(feedback: string | AIEvaluationResponse): AIEvaluatio
 export const SECTIONS_CONFIG: { id: string; title: string; maxAnswers: number; description: string; maxPointsPerAnswer: number }[] = [
   {
     id: 'motivateurs',
-    title: 'A. ACCROCHES IRRESISTIBLES',
+    title: 'A. QUESTIONS IRRESISTIBLES',
     maxAnswers: 5,
     description: 'Identifiez les motivateurs d\'achat',
     maxPointsPerAnswer: 4

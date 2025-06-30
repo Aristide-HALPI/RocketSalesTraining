@@ -281,6 +281,7 @@ export default function StudentExercises() {
     
     switch (exercise.type) {
       case 'eisenhower':
+        // Utiliser un format cohérent avec les paramètres de requête
         navigate(`/eisenhower?userId=${userId}`);
         break;
       case 'welcome':

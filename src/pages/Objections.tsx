@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { objectionsService, ObjectionsExercise, ObjectionEntry } from '../features/objections/services/objectionsService';
 import { useAuth } from '../contexts/AuthContext';
 import { ExerciseTemplate } from '../components/ExerciseTemplate';
+import './objections.css'; // Ajout du fichier CSS personnalisé
 
 const OBJECTION_TYPES = [
   { value: 'le malentendu', label: 'Le malentendu' },
@@ -149,6 +150,7 @@ const Objections = () => {
     <ExerciseTemplate
       title="Objections"
       description="Sur base de ces informations, dites parmi ces objections clients, quel type d'objection il s'agit, et dites quelle technique principale vous allez alors utiliser."
+      maxScore={50}
     >
       <div className="w-full">
         <div className="bg-gradient-to-r from-purple-100 to-teal-100 rounded-lg p-6 mb-8">
@@ -199,46 +201,80 @@ const Objections = () => {
                       <p className="text-gray-800">{section.text}</p>
                     </td>
                     <td className="py-4 px-6">
-                      <select
-                        className="w-full p-2 border rounded-md bg-white"
-                        value={section.type || ''}
-                        onChange={(e) => handleTypeChange(index, e.target.value)}
-                        disabled={isViewMode || exercise?.status === 'submitted'}
-                      >
-                        <option value="">Sélectionner...</option>
-                        {OBJECTION_TYPES.map((type) => (
-                          <option key={type.value} value={type.value}>
-                            {type.label}
-                          </option>
-                        ))}
-                      </select>
+                      {exercise?.status === 'submitted' ? (
+                        <div className="w-full p-2 border rounded-md bg-white whitespace-normal break-words">
+                          {OBJECTION_TYPES.find(type => type.value === section.type)?.label || section.type || 'Non répondu'}
+                        </div>
+                      ) : (
+                        <select
+                          className="w-full p-2 border rounded-md bg-white"
+                          value={section.type || ''}
+                          onChange={(e) => handleTypeChange(index, e.target.value)}
+                          disabled={isViewMode}
+                        >
+                          <option value="">Sélectionner...</option>
+                          {OBJECTION_TYPES.map((type) => (
+                            <option key={type.value} value={type.value}>
+                              {type.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                       {exercise?.status === 'submitted' && (
                         <div className="mt-2">
-                          <p className={`text-sm ${section.type === section.correctType ? 'text-green-600' : 'text-red-600'}`}>
-                            {section.type === section.correctType ? '✓ Correct' : `✗ Incorrect - La bonne réponse était: ${section.correctType}`}
-                          </p>
+                          <div className={`text-sm ${section.type === section.correctType ? 'text-green-600' : 'text-red-600'}`}>
+                            {section.type === section.correctType ? (
+                              <p>✓ Correct</p>
+                            ) : (
+                              <div className="whitespace-normal break-words">
+                                <p>✗ Incorrect - La bonne réponse était:</p>
+                                <p className="mt-1 font-medium">{section.correctType}</p>
+                              </div>
+                            )}
+                          </div>
+                          <div className="mt-2">
+                            <p className="text-sm text-gray-700">Votre réponse:</p>
+                            <p className="whitespace-normal break-words text-sm">{section.type}</p>
+                          </div>
                         </div>
                       )}
                     </td>
                     <td className="py-4 px-6">
-                      <select
-                        className="w-full p-2 border rounded-md bg-white"
-                        value={section.justification || ''}
-                        onChange={(e) => handleJustificationChange(index, e.target.value)}
-                        disabled={isViewMode || exercise?.status === 'submitted'}
-                      >
-                        <option value="">Sélectionnez votre justification...</option>
-                        {JUSTIFICATIONS.map((justification) => (
-                          <option key={justification.value} value={justification.value}>
-                            {justification.label}
-                          </option>
-                        ))}
-                      </select>
+                      {exercise?.status === 'submitted' ? (
+                        <div className="w-full p-2 border rounded-md bg-white whitespace-normal break-words">
+                          {JUSTIFICATIONS.find(j => j.value === section.justification)?.label || section.justification || 'Non répondu'}
+                        </div>
+                      ) : (
+                        <select
+                          className="w-full p-2 border rounded-md bg-white"
+                          value={section.justification || ''}
+                          onChange={(e) => handleJustificationChange(index, e.target.value)}
+                          disabled={isViewMode}
+                        >
+                          <option value="">Sélectionnez votre justification...</option>
+                          {JUSTIFICATIONS.map((justification) => (
+                            <option key={justification.value} value={justification.value}>
+                              {justification.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                       {exercise?.status === 'submitted' && (
                         <div className="mt-2">
-                          <p className={`text-sm ${section.justification === section.correctJustification ? 'text-green-600' : 'text-red-600'}`}>
-                            {section.justification === section.correctJustification ? '✓ Correct' : `✗ Incorrect - La bonne réponse était: ${section.correctJustification}`}
-                          </p>
+                          <div className={`text-sm ${section.justification === section.correctJustification ? 'text-green-600' : 'text-red-600'}`}>
+                            {section.justification === section.correctJustification ? (
+                              <p>✓ Correct</p>
+                            ) : (
+                              <div className="whitespace-normal break-words">
+                                <p>✗ Incorrect - La bonne réponse était:</p>
+                                <p className="mt-1 font-medium">{section.correctJustification}</p>
+                              </div>
+                            )}
+                          </div>
+                          <div className="mt-2">
+                            <p className="text-sm text-gray-700">Votre réponse:</p>
+                            <p className="whitespace-normal break-words text-sm">{section.justification}</p>
+                          </div>
                         </div>
                       )}
                     </td>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { DialogueSection as DialogueSectionType } from '../types';
 
 interface DialogueSectionProps {
@@ -22,6 +22,38 @@ export const DialogueSection: React.FC<DialogueSectionProps> = ({
   onUpdateLine,
   onUpdateFeedback,
 }) => {
+  // Références pour les zones de texte
+  const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
+  const commentDivRefs = useRef<(HTMLDivElement | null)[]>([]);
+  
+  // Fonction pour ajuster la hauteur d'un textarea
+  const adjustTextareaHeight = (element: HTMLTextAreaElement) => {
+    if (element) {
+      element.style.height = 'auto';
+      element.style.height = `${Math.max(element.scrollHeight, 80)}px`;
+    }
+  };
+  
+  // Fonction pour ajuster la hauteur d'une div de commentaire
+  const adjustCommentDivHeight = (element: HTMLDivElement) => {
+    if (element && element.scrollHeight > 0) {
+      element.style.height = 'auto';
+      element.style.minHeight = '80px';
+    }
+  };
+  
+  // Ajuster les hauteurs quand les lignes changent
+  useEffect(() => {
+    // Ajuster les textareas
+    textareaRefs.current.forEach(textarea => {
+      if (textarea) adjustTextareaHeight(textarea);
+    });
+    
+    // Ajuster les divs de commentaires
+    commentDivRefs.current.forEach(div => {
+      if (div) adjustCommentDivHeight(div);
+    });
+  }, [section.lines]); // Se déclenche quand les lignes changent
   console.log('DialogueSection props:', { title, section, isFormateur, isSubmitted });
   
   if (!section || !section.lines) {
@@ -74,6 +106,7 @@ export const DialogueSection: React.FC<DialogueSectionProps> = ({
               <div className="col-span-4 p-4">
                 {isFormateur ? (
                   <textarea
+                    ref={el => textareaRefs.current[index] = el}
                     value={line.feedback || ''}
                     onChange={(e) => onUpdateFeedback(index, e.target.value)}
                     placeholder="Ajouter un commentaire..."
@@ -91,11 +124,12 @@ export const DialogueSection: React.FC<DialogueSectionProps> = ({
                   />
                 ) : (
                   <div 
+                    ref={el => commentDivRefs.current[index] = el}
                     className="text-sm text-gray-500 italic p-2 border border-gray-200 rounded min-h-[80px] bg-gray-50 whitespace-pre-wrap overflow-auto"
                     style={{ 
                       height: 'auto', 
                       minHeight: '80px',
-                      maxHeight: line.feedback && line.feedback.length > 200 ? 'none' : 'auto'
+                      maxHeight: 'none'
                     }}
                   >
                     {isSubmitted 

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, memo } from 'react';
+import { useEffect, useState, useCallback, memo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -13,6 +13,8 @@ import { Button } from '../components/ui/button';
 interface LocalEvaluation {
   score: Score;
   comment: string;
+  timestamp: number; // Timestamp de la dernière modification
+  source: 'ai' | 'manual'; // Source de l'évaluation (IA ou manuelle)
 }
 
 interface LocalEvaluations {
@@ -25,22 +27,38 @@ const ScoreAndCommentComponent = memo(({
   initialComment = '',
   disabled,
   onScoreChange,
-  onCommentChange
+  onCommentChange,
+  questionType = 'standard' // 'standard' pour explicite/évocatrice, 'projective' pour les composants des questions projectives
 }: {
   initialScore?: Score;
   initialComment?: string;
   disabled?: boolean;
   onScoreChange: (score: Score) => void;
   onCommentChange: (comment: string) => void;
+  questionType?: 'standard' | 'projective';
 }) => {
   const [score, setScore] = useState<Score>(initialScore);
   const [comment, setComment] = useState(initialComment);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Fonction pour ajuster automatiquement la hauteur du textarea
+  const adjustTextareaHeight = (element: HTMLTextAreaElement) => {
+    element.style.height = 'auto';
+    element.style.height = Math.max(element.scrollHeight, 48) + 'px'; // Minimum 48px (2 lignes)
+  };
 
   // Mettre à jour l'état local si les props changent
   useEffect(() => {
     setScore(initialScore);
     setComment(initialComment);
   }, [initialScore, initialComment]);
+
+  // Ajuster la hauteur du textarea quand le commentaire change
+  useEffect(() => {
+    if (textareaRef.current) {
+      adjustTextareaHeight(textareaRef.current);
+    }
+  }, [comment]);
 
   return (
     <div className="mt-2 space-y-2">
@@ -57,6 +75,13 @@ const ScoreAndCommentComponent = memo(({
         >
           <option value={0}>0</option>
           <option value={1}>1</option>
+          <option value={2}>2</option>
+          {questionType === 'standard' && (
+            <>
+              <option value={3}>3</option>
+              <option value={4}>4</option>
+            </>
+          )}
         </select>
       </div>
       <textarea
@@ -64,11 +89,14 @@ const ScoreAndCommentComponent = memo(({
         onChange={(e) => {
           setComment(e.target.value);
           onCommentChange(e.target.value);
+          adjustTextareaHeight(e.target);
         }}
+        onInput={(e) => adjustTextareaHeight(e.target as HTMLTextAreaElement)}
         placeholder="Commentaire..."
-        className="w-full px-3 py-2 rounded-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900"
-        rows={2}
+        className="w-full px-3 py-2 rounded-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 resize-none overflow-hidden"
+        style={{ minHeight: '48px' }}
         disabled={disabled}
+        ref={textareaRef}
       />
     </div>
   );
@@ -104,217 +132,6 @@ export default function Cles() {
     return (isTrainer || isAdmin) && exercise?.status === 'submitted';
   };
 
-  useEffect(() => {
-    const loadExercise = async () => {
-      try {
-        const loadedExercise = await troisClesService.getExercise(targetUserId);
-        console.log('Loaded exercise:', loadedExercise);
-        console.log('Exercise status:', loadedExercise?.status);
-        console.log('Exercise sections:', loadedExercise?.sections);
-        console.log('Questions projectives:', loadedExercise?.sections?.[4]?.questionsProjectives);
-        setExercise(loadedExercise);
-
-        // Charger les évaluations locales depuis le localStorage
-        const savedEvaluation = localStorage.getItem(`evaluation_${targetUserId}`);
-        if (savedEvaluation) {
-          setLocalEvaluations(JSON.parse(savedEvaluation));
-        }
-      } catch (error) {
-        console.error('Error loading exercise:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (targetUserId) {
-      loadExercise();
-    }
-
-    // Configurer un listener pour sauvegarder l'exercice avant de quitter la page
-    const handleBeforeUnload = () => {
-      if (exercise && !isSubmitted()) {
-        // Sauvegarder l'exercice dans Firebase avant de quitter
-        troisClesService.updateExercise(targetUserId, exercise);
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [targetUserId]); // Retirer exercise et isSubmitted des dépendances pour éviter la boucle infinie
-
-  // Sauvegarder les évaluations locales
-  useEffect(() => {
-    if (Object.keys(localEvaluations).length > 0) {
-      localStorage.setItem(`evaluation_${targetUserId}`, JSON.stringify(localEvaluations));
-    }
-  }, [localEvaluations, targetUserId]);
-
-  const handleSubmit = async () => {
-    if (!exercise) return;
-    try {
-      await troisClesService.submitExercise(exercise.id);
-      const updatedExercise = await troisClesService.getExercise(exercise.id);
-      console.log('Exercise after submit:', updatedExercise);
-      setExercise(updatedExercise);
-    } catch (error) {
-      console.error('Erreur lors de la soumission:', error);
-      if (error instanceof Error) {
-        alert(error.message);
-      } else {
-        alert('Une erreur est survenue lors de la soumission');
-      }
-    }
-  };
-
-  const handlePublishEvaluation = useCallback(async () => {
-    if (!exercise) return;
-
-    const updatedExercise = { ...exercise };
-    
-    Object.entries(localEvaluations).forEach(([key, evaluation]) => {
-      const [type, index, subType] = key.split('-');
-      const idx = Number(index);
-
-      if (type === 'explicite' && updatedExercise.sections[0]?.questionsExplicites) {
-        const question = updatedExercise.sections[0].questionsExplicites[idx];
-        if (question) {
-          question.score = evaluation.score;
-          question.trainerComment = evaluation.comment;
-        }
-      } else if (type === 'evocatrice' && updatedExercise.sections[1]?.questionsEvocatrices) {
-        const question = updatedExercise.sections[1].questionsEvocatrices[idx];
-        if (question) {
-          if (subType === 'passe') {
-            question.scoresPasse = evaluation.score;
-            question.commentPasse = evaluation.comment;
-          } else if (subType === 'present') {
-            question.scoresPresent = evaluation.score;
-            question.commentPresent = evaluation.comment;
-          } else if (subType === 'futur') {
-            question.scoresFutur = evaluation.score;
-            question.commentFutur = evaluation.comment;
-          }
-        }
-      } else if (type === 'impacts' && updatedExercise.sections[2]?.impactsTemporels) {
-        updatedExercise.sections[2].impactsTemporels.score = evaluation.score;
-        updatedExercise.sections[2].impactsTemporels.trainerComment = evaluation.comment;
-      } else if (type === 'besoins' && updatedExercise.sections[3]?.besoinsSolution) {
-        updatedExercise.sections[3].besoinsSolution.score = evaluation.score;
-        updatedExercise.sections[3].besoinsSolution.trainerComment = evaluation.comment;
-      } else if (type === 'projective' && updatedExercise.sections[4]?.questionsProjectives) {
-        const question = updatedExercise.sections[4].questionsProjectives[idx];
-        if (question) {
-          // Créer une copie avec les valeurs par défaut
-          const updatedQuestion = {
-            ...question,
-            scores: {
-              question: 0 as Score,
-              reponseClient: 0 as Score,
-              confirmation: 0 as Score,
-              impacts: 0 as Score,
-              besoinSolution: 0 as Score,
-              ...(question.scores || {})
-            },
-            comments: {
-              question: '',
-              reponseClient: '',
-              confirmation: '',
-              impacts: '',
-              besoinSolution: '',
-              ...(question.comments || {})
-            }
-          };
-
-          const { score, comment } = evaluation;
-          
-          if (subType === 'question') {
-            updatedQuestion.scores.question = score;
-            updatedQuestion.comments.question = comment;
-          } else if (subType === 'reponseClient') {
-            updatedQuestion.scores.reponseClient = score;
-            updatedQuestion.comments.reponseClient = comment;
-          } else if (subType === 'confirmation') {
-            updatedQuestion.scores.confirmation = score;
-            updatedQuestion.comments.confirmation = comment;
-          } else if (subType === 'impacts') {
-            updatedQuestion.scores.impacts = score;
-            updatedQuestion.comments.impacts = comment;
-          } else if (subType === 'besoinSolution') {
-            updatedQuestion.scores.besoinSolution = score;
-            updatedQuestion.comments.besoinSolution = comment;
-          }
-          
-          updatedExercise.sections[4].questionsProjectives[idx] = updatedQuestion;
-        }
-      }
-    });
-
-    try {
-      await troisClesService.updateExercise(targetUserId, updatedExercise);
-      setLocalEvaluations({});
-      localStorage.removeItem(`evaluation_${targetUserId}`);
-    } catch (error) {
-      console.error('Error publishing evaluation:', error);
-    }
-  }, [exercise, localEvaluations, targetUserId]);
-
-  const handleAIEvaluation = async (sectionType: 'explicite' | 'evocatrice' | 'projective') => {
-    if (!exercise) return;
-    
-    try {
-      setLoadingAI(prev => ({ ...prev, [sectionType]: true }));
-      
-      // Créer une version modifiée de l'exercice avec uniquement la section demandée
-      const evaluationExercise = { ...exercise };
-      
-      // Filtrer les sections en fonction du type
-      switch (sectionType) {
-        case 'explicite':
-          evaluationExercise.sections = [exercise.sections[0]];
-          break;
-        case 'evocatrice':
-          evaluationExercise.sections = [exercise.sections[1]];
-          break;
-        case 'projective':
-          evaluationExercise.sections = [exercise.sections[4]];
-          break;
-      }
-
-      // Appeler le service d'évaluation avec la section filtrée
-      await troisClesService.evaluateWithAI(targetUserId, evaluationExercise);
-      
-      // Recharger l'exercice pour obtenir les résultats de l'évaluation
-      const updatedExercise = await troisClesService.getExercise(targetUserId);
-      setExercise(updatedExercise);
-    } catch (error) {
-      console.error('Erreur lors de l\'évaluation IA:', error);
-      alert('Une erreur est survenue lors de l\'évaluation par l\'IA');
-    } finally {
-      setLoadingAI(prev => ({ ...prev, [sectionType]: false }));
-    }
-  };
-
-  const handleForceSubmit = async () => {
-    if (!exercise) return;
-    
-    try {
-      // Mettre à jour le statut de l'exercice à 'submitted'
-      await troisClesService.submitExercise(targetUserId);
-      
-      // Recharger l'exercice pour obtenir le statut mis à jour
-      const updatedExercise = await troisClesService.getExercise(targetUserId);
-      setExercise(updatedExercise);
-      
-      alert('L\'exercice a été marqué comme soumis avec succès.');
-    } catch (error) {
-      console.error('Erreur lors du forçage de la soumission:', error);
-      alert('Une erreur est survenue lors du forçage de la soumission');
-    }
-  };
-
   const isAnswerDisabled = useCallback(() => {
     if (!exercise) return true;
     if (isTrainer || isAdmin) return true;  // Les formateurs et admins ne peuvent pas modifier les réponses
@@ -345,79 +162,625 @@ export default function Cles() {
     return !!(hasExplicites || hasEvocatrices || hasImpacts || hasBesoins || hasProjectives);
   }, [exercise]);
 
-  // Fonction pour gérer les modifications des questions explicites
-  const handleQuestionExpliciteChange = (index: number, value: string) => {
-    if (!exercise) return;
-
-    const newExercise = { ...exercise };
-    const section = newExercise.sections[0] || {
-      id: 'questions_explicites',
-      title: 'Questions Explicites',
-      description: 'Questions explicites pour comprendre le contexte',
-      questionsExplicites: []
-    };
+  const updateLocalEvaluations = useCallback((type: string, index: number, subType: string | null, evaluation: LocalEvaluation) => {
+    const key = `${type}_${index}${subType ? `_${subType}` : ''}`;
+    console.log(`💾 SAUVEGARDE LOCALE pour ${key}:`, evaluation);
+    console.log(`🕐 Timestamp de la modification:`, evaluation.timestamp, new Date(evaluation.timestamp).toLocaleString());
     
-    if (!section.questionsExplicites) {
-      section.questionsExplicites = [];
-    }
-
-    if (!section.questionsExplicites[index]) {
-      section.questionsExplicites[index] = {
-        text: '',
-        score: 0 as Score,
-        trainerComment: ''
+    setLocalEvaluations(prev => {
+      const updated = {
+        ...prev,
+        [key]: evaluation
       };
-    }
+      
+      // Sauvegarder dans localStorage
+      localStorage.setItem(`evaluation_${targetUserId}`, JSON.stringify(updated));
+      console.log(`✅ SAUVEGARDÉ dans localStorage pour ${targetUserId}:`, updated);
+      console.log(`📝 Clés sauvegardées:`, Object.keys(updated));
+      
+      return updated;
+    });
+  }, [targetUserId]);
 
-    section.questionsExplicites[index].text = value;
-    newExercise.sections[0] = section;
-
-    // Mettre à jour l'état local immédiatement
-    setExercise(newExercise);
-    
-    // Utiliser un délai pour éviter trop d'appels API
-    debounceUpdateExercise(newExercise);
+  const handleScoreChange = (type: string, index: number, subType: string | null, score: Score) => {
+    const key = `${type}_${index}${subType ? `_${subType}` : ''}`;
+    const currentEval = localEvaluations[key] || { score: 0, comment: '', timestamp: 0, source: 'manual' as const };
+    updateLocalEvaluations(type, index, subType, { ...currentEval, score, timestamp: Date.now(), source: 'manual' });
   };
 
-  // Fonction pour gérer les modifications des questions évocatrices
-  const handleQuestionEvocatriceChange = (index: number, field: 'passe' | 'present' | 'futur', value: string) => {
-    if (!exercise) return;
+  const handleCommentChange = (type: string, index: number, subType: string | null, comment: string) => {
+    const key = `${type}_${index}${subType ? `_${subType}` : ''}`;
+    const currentEval = localEvaluations[key] || { score: 0, comment: '', timestamp: 0, source: 'manual' as const };
+    updateLocalEvaluations(type, index, subType, { ...currentEval, comment, timestamp: Date.now(), source: 'manual' });
+  };
 
-    const newExercise = { ...exercise };
-    const section = newExercise.sections[1] || {
-      id: 'questions_evocatrices',
-      title: 'Questions Évocatrices',
-      description: 'Questions évocatrices pour approfondir',
-      questionsEvocatrices: []
+  const renderScoreAndComment = useCallback((type: string, index: number, subType: string | null, score: Score | undefined, comment: string | undefined) => {
+    const key = `${type}_${index}${subType ? `_${subType}` : ''}`;
+    console.log(`🎨 renderScoreAndComment appelé pour: ${key}`);
+    console.log(`📦 Données locales pour cette clé:`, localEvaluations[key]);
+    
+    const localEval = localEvaluations[key];
+    const displayScore = localEval?.score ?? score ?? 0;
+    const displayComment = localEval?.comment ?? comment ?? '';
+    
+    console.log(`📊 Affichage - Score: ${displayScore}, Commentaire: ${displayComment}`);
+    
+    // Créer l'objet évaluation
+    const evaluation = { 
+      score: displayScore, 
+      comment: displayComment,
+      timestamp: localEval?.timestamp || Date.now(),
+      source: localEval?.source || 'manual' as const
     };
     
-    if (!section.questionsEvocatrices) {
-      section.questionsEvocatrices = [];
+    // Déterminer le type de question pour l'échelle de notation
+    const questionType = type === 'projective' && subType ? 'projective' : 'standard';
+
+    // Ne pas afficher les contrôles d'évaluation pour les non-formateurs/non-admins
+    // sauf s'il y a une évaluation à afficher
+    if (!isTrainer && !isAdmin) {
+      if (!evaluation.comment && evaluation.score === 0) {
+        return null;
+      }
     }
 
-    if (!section.questionsEvocatrices[index]) {
-      section.questionsEvocatrices[index] = {
-        passe: '',
-        present: '',
-        futur: '',
-        scoresPasse: 0 as Score,
-        scoresPresent: 0 as Score,
-        scoresFutur: 0 as Score,
-        commentPasse: '',
-        commentPresent: '',
-        commentFutur: ''
-      };
+    return (
+      <ScoreAndCommentComponent
+        initialScore={evaluation.score}
+        initialComment={evaluation.comment}
+        disabled={isEvaluationDisabled()}
+        questionType={questionType}
+        onScoreChange={(newScore) => updateLocalEvaluations(type, index, subType, { ...evaluation, score: newScore, timestamp: Date.now(), source: 'manual' })}
+        onCommentChange={(newComment) => updateLocalEvaluations(type, index, subType, { ...evaluation, comment: newComment, timestamp: Date.now(), source: 'manual' })}
+      />
+    );
+  }, [isTrainer, isAdmin, localEvaluations, isEvaluationDisabled, updateLocalEvaluations]);
+
+  useEffect(() => {
+    const loadExercise = async () => {
+      try {
+        const loadedExercise = await troisClesService.getExercise(targetUserId);
+        console.log('Loaded exercise:', loadedExercise);
+        console.log('Exercise status:', loadedExercise?.status);
+        console.log('📋 Structure des sections:', loadedExercise?.sections?.map((s, i) => ({
+          index: i,
+          title: s.title,
+          hasQuestionsExplicites: !!s.questionsExplicites,
+          hasQuestionsEvocatrices: !!s.questionsEvocatrices,
+          hasQuestionsProjectives: !!s.questionsProjectives
+        })));
+        console.log('Questions projectives:', loadedExercise?.sections?.[4]?.questionsProjectives);
+        console.log('🔍 Sections chargées:', {
+          explicites: loadedExercise.sections[0]?.questionsExplicites?.length || 0,
+          evocatrices: loadedExercise.sections[1]?.questionsEvocatrices?.length || 0,
+          projectives: loadedExercise.sections[4]?.questionsProjectives?.length || 0
+        });
+        console.log('📋 Questions évocatrices détaillées:', loadedExercise.sections[1]?.questionsEvocatrices);
+        setExercise(loadedExercise);
+
+        // 1. PRIORITÉ ABSOLUE : Charger les évaluations locales depuis localStorage
+        const savedEvaluations = localStorage.getItem(`evaluation_${targetUserId}`);
+        if (savedEvaluations) {
+          const parsed = JSON.parse(savedEvaluations);
+          console.log(`📂 CHARGEMENT des évaluations depuis localStorage pour ${targetUserId}:`, parsed);
+          console.log(`📝 Clés trouvées:`, Object.keys(parsed));
+          setLocalEvaluations(parsed);
+        } else {
+          // 2. Si pas de localStorage, vérifier si l'exercice a été évalué et publié
+          if (loadedExercise?.status === 'evaluated' && loadedExercise?.trainerEvaluations) {
+            console.log('👨‍🏫 Exercice évalué - Chargement des évaluations publiées depuis Firestore');
+            
+            const publishedEvals: Record<string, LocalEvaluation> = {};
+            
+            // Convertir les trainerEvaluations de Firestore vers le format local
+            Object.entries(loadedExercise.trainerEvaluations).forEach(([type, typeEvals]: [string, any]) => {
+              Object.entries(typeEvals).forEach(([index, evalOrSubEvals]: [string, any]) => {
+                if (evalOrSubEvals.score !== undefined) {
+                  // Évaluation simple (explicite, impacts, besoins)
+                  const key = `${type}_${index}`;
+                  publishedEvals[key] = {
+                    score: evalOrSubEvals.score,
+                    comment: evalOrSubEvals.comment || '',
+                    timestamp: evalOrSubEvals.timestamp || Date.now(),
+                    source: evalOrSubEvals.source || 'manual'
+                  };
+                } else {
+                  // Évaluation avec sous-types (évocatrice, projective)
+                  Object.entries(evalOrSubEvals).forEach(([subType, subEval]: [string, any]) => {
+                    const key = `${type}_${index}_${subType}`;
+                    publishedEvals[key] = {
+                      score: subEval.score,
+                      comment: subEval.comment || '',
+                      timestamp: subEval.timestamp || Date.now(),
+                      source: subEval.source || 'manual'
+                    };
+                  });
+                }
+              });
+            });
+            
+            console.log('📥 Évaluations publiées chargées:', publishedEvals);
+            setLocalEvaluations(publishedEvals);
+            
+            // Sauvegarder dans localStorage pour les prochaines fois
+            localStorage.setItem(`evaluation_${targetUserId}`, JSON.stringify(publishedEvals));
+            
+          } else if (loadedExercise?.aiEvaluation?.evaluation?.responses) {
+            // 3. Si pas évalué mais a des évaluations IA, les charger
+            console.log('🤖 Initialisation avec les évaluations IA de Firestore');
+            
+            const aiEvaluations: Record<string, LocalEvaluation> = {};
+            const aiTimestamp = loadedExercise.updatedAt ? new Date(loadedExercise.updatedAt).getTime() : Date.now();
+            
+            loadedExercise.aiEvaluation.evaluation.responses.forEach((response: any) => {
+              // Mapper les réponses IA vers nos clés locales
+              let key = '';
+              
+              if (response.section === 'questions_explicites_open') {
+                // Questions explicites ouvertes (0-2)
+                if (response.characteristic >= 1 && response.characteristic <= 3) {
+                  key = `explicite_${response.characteristic - 1}`;
+                }
+              } else if (response.section === 'questions_explicites_fermees') {
+                // Questions explicites fermées (3-4)
+                if (response.characteristic >= 4 && response.characteristic <= 5) {
+                  key = `explicite_${response.characteristic - 1}`;
+                }
+              } else if (response.section === 'questions_impacts' && response.characteristic === 6) {
+                // Question d'impact explicite
+                key = 'explicite_5';
+              } else if (response.section === 'questions_besoin_solution' && response.characteristic === 7) {
+                // Question de besoin de solution explicite
+                key = 'explicite_6';
+              } else if (response.section === 'questions_evocatrices_passe') {
+                // Questions évocatrices passé
+                // L'IA envoie characteristic 1-3 pour les 3 questions passé
+                if (response.characteristic === 1) {
+                  key = `evocatrice_0_passe`;
+                } else if (response.characteristic === 2) {
+                  key = `evocatrice_1_passe`;
+                } else if (response.characteristic === 3) {
+                  key = `evocatrice_2_passe`;
+                }
+              } else if (response.section === 'questions_evocatrices_present') {
+                // Questions évocatrices présent
+                // L'IA envoie characteristic 4-6 pour les 3 questions présent
+                if (response.characteristic === 4) {
+                  key = `evocatrice_0_present`;
+                } else if (response.characteristic === 5) {
+                  key = `evocatrice_1_present`;
+                } else if (response.characteristic === 6) {
+                  key = `evocatrice_2_present`;
+                }
+              } else if (response.section === 'questions_evocatrices_futur') {
+                // Questions évocatrices futur
+                // L'IA envoie characteristic 7-9 pour les 3 questions futur
+                if (response.characteristic === 7) {
+                  key = `evocatrice_0_futur`;
+                } else if (response.characteristic === 8) {
+                  key = `evocatrice_1_futur`;
+                } else if (response.characteristic === 9) {
+                  key = `evocatrice_2_futur`;
+                }
+              } else if (response.section === 'questions_impacts' && response.characteristic === 10) {
+                // Question d'impact évocatrice
+                key = 'impacts_0';
+              } else if (response.section === 'questions_besoin_solution' && response.characteristic === 11) {
+                // Question de besoin de solution évocatrice
+                key = 'besoins_0';
+              } else if (response.section.startsWith('question_projective_')) {
+                // Questions projectives
+                const projectiveIndex = parseInt(response.section.replace('question_projective_', '')) - 1;
+                if (response.components) {
+                  // Si on a des composants, traiter chaque sous-partie
+                  response.components.forEach((component: any) => {
+                    const subKey = `projective_${projectiveIndex}_${component.section}`;
+                    aiEvaluations[subKey] = {
+                      score: component.score || 0,
+                      comment: component.comment || '',
+                      timestamp: aiTimestamp,
+                      source: 'ai' as const
+                    };
+                  });
+                  // Ajouter aussi l'évaluation globale de la question
+                  const globalKey = `projective_${projectiveIndex}_global`;
+                  aiEvaluations[globalKey] = {
+                    score: response.score || 0,
+                    comment: response.comment || '',
+                    timestamp: aiTimestamp,
+                    source: 'ai' as const
+                  };
+                } else {
+                  // Sinon, utiliser le score global (fallback)
+                  key = `projective_${projectiveIndex}_question`;
+                }
+              }
+              
+              if (key) {
+                aiEvaluations[key] = {
+                  score: response.score || 0,
+                  comment: response.comment || '',
+                  timestamp: aiTimestamp,
+                  source: 'ai' as const
+                };
+              }
+            });
+            
+            console.log('🤖 Évaluations IA initialisées:', aiEvaluations);
+            setLocalEvaluations(aiEvaluations);
+            localStorage.setItem(`evaluation_${targetUserId}`, JSON.stringify(aiEvaluations));
+          }
+        }
+      } catch (error) {
+        console.error('Error loading exercise:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (targetUserId) {
+      loadExercise();
     }
 
-    section.questionsEvocatrices[index][field] = value;
-    newExercise.sections[1] = section;
+    // Configurer un listener pour sauvegarder l'exercice avant de quitter la page
+    const handleBeforeUnload = () => {
+      if (exercise && !isSubmitted()) {
+        // Sauvegarder l'exercice dans Firebase avant de quitter
+        troisClesService.updateExercise(targetUserId, exercise);
+      }
+    };
 
-    // Mettre à jour l'état local immédiatement
-    setExercise(newExercise);
+    window.addEventListener('beforeunload', handleBeforeUnload);
     
-    // Utiliser un délai pour éviter trop d'appels API
-    debounceUpdateExercise(newExercise);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [targetUserId]); // Retirer exercise et isSubmitted des dépendances pour éviter la boucle infinie
+
+  const handleSubmit = async () => {
+    if (!exercise) return;
+    try {
+      await troisClesService.submitExercise(exercise.id);
+      const updatedExercise = await troisClesService.getExercise(exercise.id);
+      console.log('Exercise after submit:', updatedExercise);
+      setExercise(updatedExercise);
+    } catch (error) {
+      console.error('Erreur lors de la soumission:', error);
+      if (error instanceof Error) {
+        alert(error.message);
+      } else {
+        alert('Une erreur est survenue lors de la soumission');
+      }
+    }
   };
+
+  const handleAIEvaluation = async (sectionType: 'explicite' | 'evocatrice' | 'projective') => {
+    if (!exercise) return;
+    
+    try {
+      setLoadingAI(prev => ({ ...prev, [sectionType]: true }));
+      
+      // Créer une version modifiée de l'exercice avec uniquement la section demandée
+      const evaluationExercise = { ...exercise };
+      
+      // Filtrer les sections en fonction du type
+      switch (sectionType) {
+        case 'explicite':
+          evaluationExercise.sections = [exercise.sections[0]];
+          break;
+        case 'evocatrice':
+          evaluationExercise.sections = [exercise.sections[1]];
+          break;
+        case 'projective':
+          evaluationExercise.sections = [exercise.sections[4]];
+          break;
+      }
+
+      console.log(`🎯 Évaluation IA pour ${sectionType}:`, {
+        sectionsEnvoyées: evaluationExercise.sections.length,
+        titresSections: evaluationExercise.sections.map(s => s.title)
+      });
+
+      // Log détaillé de ce qu'on envoie
+      console.log('📤 Contenu exact envoyé à l\'IA:', {
+        nombreSections: evaluationExercise.sections.length,
+        sections: evaluationExercise.sections.map(s => ({
+          title: s.title,
+          questionsExplicites: s.questionsExplicites?.length || 0,
+          questionsEvocatrices: s.questionsEvocatrices?.length || 0,
+          questionsProjectives: s.questionsProjectives?.length || 0
+        }))
+      });
+
+      // Appeler le service d'évaluation avec la section filtrée
+      await troisClesService.evaluateWithAI(targetUserId, evaluationExercise);
+      
+      // Recharger l'exercice pour obtenir les résultats de l'évaluation
+      const updatedExercise = await troisClesService.getExercise(targetUserId);
+      setExercise(updatedExercise);
+      
+      // Capturer les nouvelles évaluations IA
+      if (updatedExercise?.aiEvaluation?.evaluation?.responses) {
+        console.log('🤖 Nouvelles évaluations IA après évaluation:', updatedExercise.aiEvaluation.evaluation.responses);
+        
+        // FILTRER les réponses selon la section demandée
+        const filteredResponses = updatedExercise.aiEvaluation.evaluation.responses.filter((response: any) => {
+          switch (sectionType) {
+            case 'explicite':
+              return response.section.includes('explicite') || 
+                     (response.section === 'questions_impacts' && response.characteristic === 6) ||
+                     (response.section === 'questions_besoin_solution' && response.characteristic === 7);
+            case 'evocatrice':
+              return response.section.includes('evocatrice') || 
+                     (response.section === 'questions_impacts' && response.characteristic === 10) ||
+                     (response.section === 'questions_besoin_solution' && response.characteristic === 11);
+            case 'projective':
+              return response.section.startsWith('question_projective_');
+            default:
+              return false;
+          }
+        });
+
+        console.log(`🎯 Réponses filtrées pour ${sectionType}:`, filteredResponses.length, 'sur', updatedExercise.aiEvaluation.evaluation.responses.length);
+        
+        // LOG DÉTAILLÉ : Vérifier les scores de l'IA
+        console.log('🔍 ANALYSE DES SCORES IA:');
+        filteredResponses.forEach((response: any, index: number) => {
+          console.log(`  Response ${index}:`, {
+            section: response.section,
+            characteristic: response.characteristic,
+            score: response.score,
+            comment: response.comment?.substring(0, 50) + '...'
+          });
+        });
+        
+        // Récupérer les évaluations locales actuelles
+        const currentLocalEvaluations = { ...localEvaluations };
+        
+        // Supprimer uniquement les évaluations IA de la section concernée
+        const keysToUpdate: string[] = [];
+        switch (sectionType) {
+          case 'explicite':
+            keysToUpdate.push(...Array.from({length: 7}, (_, i) => `explicite_${i}`));
+            break;
+          case 'evocatrice':
+            keysToUpdate.push(
+              ...Array.from({length: 3}, (_, i) => `evocatrice_${i}_passe`),
+              ...Array.from({length: 3}, (_, i) => `evocatrice_${i}_present`),
+              ...Array.from({length: 3}, (_, i) => `evocatrice_${i}_futur`),
+              'impacts_0',
+              'besoins_0'
+            );
+            break;
+          case 'projective':
+            keysToUpdate.push(
+              ...Array.from({length: 5}, (_, i) => [
+                `projective_${i}_question`,
+                `projective_${i}_reponseClient`,
+                `projective_${i}_confirmation`,
+                `projective_${i}_impacts`,
+                `projective_${i}_besoinSolution`
+              ]).flat()
+            );
+            break;
+        }
+        
+        // Supprimer les anciennes évaluations IA pour cette section
+        keysToUpdate.forEach(key => {
+          if (currentLocalEvaluations[key]?.source === 'ai') {
+            delete currentLocalEvaluations[key];
+          }
+        });
+        
+        const aiEvaluations: Record<string, LocalEvaluation> = {};
+        const aiTimestamp = updatedExercise.updatedAt ? new Date(updatedExercise.updatedAt).getTime() : Date.now();
+        
+        // Utiliser seulement les réponses filtrées
+        filteredResponses.forEach((response: any) => {
+          // Mapper les réponses IA vers nos clés locales
+          let key = '';
+          
+          if (response.section === 'questions_explicites_open') {
+            // Questions explicites ouvertes (0-2)
+            if (response.characteristic >= 1 && response.characteristic <= 3) {
+              key = `explicite_${response.characteristic - 1}`;
+            }
+          } else if (response.section === 'questions_explicites_fermees') {
+            // Questions explicites fermées (3-4)
+            if (response.characteristic >= 4 && response.characteristic <= 5) {
+              key = `explicite_${response.characteristic - 1}`;
+            }
+          } else if (response.section === 'questions_impacts' && response.characteristic === 6) {
+            // Question d'impact explicite
+            key = 'explicite_5';
+          } else if (response.section === 'questions_besoin_solution' && response.characteristic === 7) {
+            // Question de besoin de solution explicite
+            key = 'explicite_6';
+          } else if (response.section === 'questions_evocatrices_passe') {
+            // Questions évocatrices passé
+            // L'IA envoie characteristic 1-3 pour les 3 questions passé
+            if (response.characteristic === 1) {
+              key = `evocatrice_0_passe`;
+            } else if (response.characteristic === 2) {
+              key = `evocatrice_1_passe`;
+            } else if (response.characteristic === 3) {
+              key = `evocatrice_2_passe`;
+            }
+          } else if (response.section === 'questions_evocatrices_present') {
+            // Questions évocatrices présent
+            // L'IA envoie characteristic 4-6 pour les 3 questions présent
+            if (response.characteristic === 4) {
+              key = `evocatrice_0_present`;
+            } else if (response.characteristic === 5) {
+              key = `evocatrice_1_present`;
+            } else if (response.characteristic === 6) {
+              key = `evocatrice_2_present`;
+            }
+          } else if (response.section === 'questions_evocatrices_futur') {
+            // Questions évocatrices futur
+            // L'IA envoie characteristic 7-9 pour les 3 questions futur
+            if (response.characteristic === 7) {
+              key = `evocatrice_0_futur`;
+            } else if (response.characteristic === 8) {
+              key = `evocatrice_1_futur`;
+            } else if (response.characteristic === 9) {
+              key = `evocatrice_2_futur`;
+            }
+          } else if (response.section === 'questions_impacts' && response.characteristic === 10) {
+            // Question d'impact évocatrice
+            key = 'impacts_0';
+          } else if (response.section === 'questions_besoin_solution' && response.characteristic === 11) {
+            // Question de besoin de solution évocatrice
+            key = 'besoins_0';
+          } else if (response.section.startsWith('question_projective_')) {
+            // Questions projectives
+            const projectiveIndex = parseInt(response.section.replace('question_projective_', '')) - 1;
+            if (response.components) {
+              // Si on a des composants, traiter chaque sous-partie
+              response.components.forEach((component: any) => {
+                const subKey = `projective_${projectiveIndex}_${component.section}`;
+                aiEvaluations[subKey] = {
+                  score: component.score || 0,
+                  comment: component.comment || '',
+                  timestamp: aiTimestamp,
+                  source: 'ai' as const
+                };
+              });
+              // Ajouter aussi l'évaluation globale de la question
+              const globalKey = `projective_${projectiveIndex}_global`;
+              aiEvaluations[globalKey] = {
+                score: response.score || 0,
+                comment: response.comment || '',
+                timestamp: aiTimestamp,
+                source: 'ai' as const
+              };
+            } else {
+              // Sinon, utiliser le score global
+              key = `projective_${projectiveIndex}_question`;
+            }
+          }
+          
+          if (key) {
+            aiEvaluations[key] = {
+              score: response.score || 0,
+              comment: response.comment || '',
+              timestamp: aiTimestamp,
+              source: 'ai' as const
+            };
+          }
+        });
+        
+        console.log('🤖 Nouvelles évaluations IA mappées:', aiEvaluations);
+        
+        // Fusionner avec les évaluations locales existantes
+        // IMPORTANT: Les nouvelles évaluations IA ont la priorité car elles viennent d'être générées
+        const mergedEvaluations = { ...currentLocalEvaluations, ...aiEvaluations };
+        
+        console.log('🔄 Évaluations fusionnées après IA:', mergedEvaluations);
+        
+        // Vérifier spécifiquement les clés projectives
+        console.log('🔍 Vérification des clés projectives après fusion:');
+        Object.keys(mergedEvaluations).filter(key => key.startsWith('projective_')).forEach(key => {
+          console.log(`  ${key}:`, mergedEvaluations[key]);
+        });
+        
+        setLocalEvaluations(mergedEvaluations);
+        localStorage.setItem(`evaluation_${targetUserId}`, JSON.stringify(mergedEvaluations));
+        
+        // Vérifier que le state a bien été mis à jour
+        setTimeout(() => {
+          console.log('🔍 Vérification du state après 100ms:');
+          const savedEvals = localStorage.getItem(`evaluation_${targetUserId}`);
+          if (savedEvals) {
+            const parsed = JSON.parse(savedEvals);
+            console.log('📦 Clés projectives dans localStorage:', 
+              Object.keys(parsed).filter(k => k.startsWith('projective_'))
+            );
+          }
+        }, 100);
+      }
+    } catch (error) {
+      console.error('Erreur lors de l\'évaluation IA:', error);
+      alert('Une erreur est survenue lors de l\'évaluation par l\'IA');
+    } finally {
+      setLoadingAI(prev => ({ ...prev, [sectionType]: false }));
+    }
+  };
+
+  const handlePublishEvaluation = useCallback(async () => {
+    if (!exercise || !targetUserId) return;
+
+    try {
+      console.log('📤 Publication des évaluations locales vers Firestore...');
+      
+      // Créer une copie de l'exercice avec les évaluations locales intégrées
+      const updatedExercise = { ...exercise };
+      
+      // Convertir les évaluations locales en format pour Firestore
+      const trainerEvaluations: any = {};
+      
+      Object.entries(localEvaluations).forEach(([key, evaluation]) => {
+        // Extraire le type et l'index de la clé
+        const parts = key.split('_');
+        const type = parts[0];
+        const index = parseInt(parts[1]);
+        const subType = parts[2];
+        
+        // Créer la structure pour Firestore
+        if (!trainerEvaluations[type]) {
+          trainerEvaluations[type] = {};
+        }
+        
+        if (subType) {
+          // Pour les questions évocatrices (passé/présent/futur)
+          if (!trainerEvaluations[type][index]) {
+            trainerEvaluations[type][index] = {};
+          }
+          trainerEvaluations[type][index][subType] = {
+            score: evaluation.score,
+            comment: evaluation.comment,
+            timestamp: evaluation.timestamp,
+            source: evaluation.source
+          };
+        } else {
+          // Pour les autres questions
+          trainerEvaluations[type][index] = {
+            score: evaluation.score,
+            comment: evaluation.comment,
+            timestamp: evaluation.timestamp,
+            source: evaluation.source
+          };
+        }
+      });
+      
+      // Ajouter les évaluations à l'exercice
+      updatedExercise.trainerEvaluations = trainerEvaluations;
+      updatedExercise.evaluatedAt = new Date().toISOString();
+      updatedExercise.evaluatedBy = currentUser?.uid;
+      
+      // Marquer l'exercice comme évalué
+      if (updatedExercise.status === 'submitted') {
+        updatedExercise.status = 'evaluated';
+      }
+      
+      // Sauvegarder dans Firestore
+      await troisClesService.updateExercise(targetUserId, updatedExercise);
+      
+      console.log('✅ Évaluations publiées avec succès dans Firestore');
+      
+      // Nettoyer localStorage après publication réussie
+      localStorage.removeItem(`evaluation_${targetUserId}`);
+      console.log('🧹 localStorage nettoyé après publication');
+      
+      alert('Les évaluations ont été publiées avec succès !');
+      
+      // Recharger l'exercice pour avoir les données à jour
+      window.location.reload();
+    } catch (error) {
+      console.error('❌ Erreur lors de la publication des évaluations:', error);
+      alert('Erreur lors de la publication des évaluations');
+    }
+  }, [exercise, targetUserId, currentUser, localEvaluations]);
 
   const initializeQuestionProjective = (question: any): any => {
     const initializedQuestion = {
@@ -513,137 +876,117 @@ export default function Cles() {
 
     // Mettre à jour l'état local immédiatement
     setExercise(newExercise);
-    
-    // Utiliser un délai pour éviter trop d'appels API
-    debounceUpdateExercise(newExercise);
   };
 
-  // Fonction pour débouncer les mises à jour
-  const [updateTimeout, setUpdateTimeout] = useState<NodeJS.Timeout | null>(null);
-  
-  const debounceUpdateExercise = useCallback((updatedExercise: TroisClesExercise) => {
-    if (updateTimeout) {
-      clearTimeout(updateTimeout);
-    }
-    
-    const timeoutId = setTimeout(() => {
-      updateExerciseAndStatus(updatedExercise);
-    }, 1000); // Délai de 1 seconde
-    
-    setUpdateTimeout(timeoutId);
-  }, [updateTimeout]);
-
-  const updateExerciseAndStatus = useCallback(async (updatedExercise: TroisClesExercise | null) => {
-    if (!updatedExercise || !targetUserId) return;
-    
-    // Mettre à jour le statut en fonction du contenu
-    const hasContent = updatedExercise.sections.some(section => {
-      const hasExplicites = section.questionsExplicites?.some(q => q.text?.trim());
-      const hasEvocatrices = section.questionsEvocatrices?.some(q => 
-        q.passe?.trim() || q.present?.trim() || q.futur?.trim()
-      );
-      const hasImpacts = section.impactsTemporels?.text?.trim();
-      const hasBesoins = section.besoinsSolution?.text?.trim();
-      const hasProjectives = section.questionsProjectives?.some(q => 
-        q.question?.trim() || q.reponseClient?.trim() || q.confirmation?.trim() || 
-        q.impacts?.trim() || q.besoinSolution?.trim()
-      );
-      return !!(hasExplicites || hasEvocatrices || hasImpacts || hasBesoins || hasProjectives);
-    });
-
-    const newStatus = hasContent ? 'in_progress' : 'not_started';
-    if (updatedExercise.status !== 'submitted' && updatedExercise.status !== 'evaluated') {
-      updatedExercise.status = newStatus;
-    }
-    
-    try {
-      // Utiliser targetUserId au lieu de updatedExercise.id
-      await troisClesService.updateExercise(targetUserId, updatedExercise);
-      console.log('Exercice sauvegardé avec succès');
-    } catch (error) {
-      console.error('Erreur lors de la mise à jour de l\'exercice:', error);
-    }
-  }, [targetUserId]);
-
-  const updateLocalEvaluations = useCallback((type: string, index: number, subType: string | null, evaluation: LocalEvaluation) => {
-    const key = `${type}_${index}${subType ? `_${subType}` : ''}`;
-    setLocalEvaluations(prev => ({
-      ...prev,
-      [key]: evaluation
-    }));
-
+  const handleImpactsChange = (value: string) => {
     if (!exercise) return;
+
+    const newExercise = { ...exercise };
+    const section = newExercise.sections[2] || {
+      id: 'impacts_temporels',
+      title: 'Impacts Temporels',
+      description: 'Impacts temporels de la situation',
+      impactsTemporels: { text: '', score: 0 as Score, trainerComment: '' }
+    };
     
-    const updatedExercise = { ...exercise };
-    if (type === 'projective' && updatedExercise?.sections?.[4]?.questionsProjectives) {
-      const idx = parseInt(index.toString());
-      if (!isNaN(idx)) {
-        const question = updatedExercise.sections[4].questionsProjectives[idx];
-        if (question) {
-          // Créer une copie avec les valeurs par défaut
-          const updatedQuestion = {
-            ...question,
-            scores: {
-              question: 0 as Score,
-              reponseClient: 0 as Score,
-              confirmation: 0 as Score,
-              impacts: 0 as Score,
-              besoinSolution: 0 as Score,
-              ...(question.scores || {})
-            },
-            comments: {
-              question: '',
-              reponseClient: '',
-              confirmation: '',
-              impacts: '',
-              besoinSolution: '',
-              ...(question.comments || {})
-            }
-          };
-
-          const { score, comment } = evaluation;
-          
-          if (subType === 'question') {
-            updatedQuestion.scores.question = score;
-            updatedQuestion.comments.question = comment;
-          } else if (subType === 'reponseClient') {
-            updatedQuestion.scores.reponseClient = score;
-            updatedQuestion.comments.reponseClient = comment;
-          } else if (subType === 'confirmation') {
-            updatedQuestion.scores.confirmation = score;
-            updatedQuestion.comments.confirmation = comment;
-          } else if (subType === 'impacts') {
-            updatedQuestion.scores.impacts = score;
-            updatedQuestion.comments.impacts = comment;
-          } else if (subType === 'besoinSolution') {
-            updatedQuestion.scores.besoinSolution = score;
-            updatedQuestion.comments.besoinSolution = comment;
-          }
-          
-          updatedExercise.sections[4].questionsProjectives[idx] = updatedQuestion;
-        }
-      }
+    if (!section.impactsTemporels) {
+      section.impactsTemporels = { text: '', score: 0 as Score, trainerComment: '' };
     }
-    updateExerciseAndStatus(updatedExercise);
-  }, [exercise, updateExerciseAndStatus]);
 
-  const renderScoreAndComment = useCallback((type: string, index: number, subType: string | null, score: Score | undefined, comment: string | undefined) => {
-    if (!isTrainer && !isAdmin) return null;  // Ne pas afficher les contrôles d'évaluation pour les non-formateurs/non-admins
+    section.impactsTemporels.text = value;
+    newExercise.sections[2] = section;
 
-    const key = `${type}_${index}${subType ? `_${subType}` : ''}`;
-    const evaluation = localEvaluations[key] || { score: score || 0 as Score, comment: comment || '' };
+    // Mettre à jour l'état local immédiatement
+    setExercise(newExercise);
+  };
 
-    return (
-      <ScoreAndCommentComponent
-        key={key}
-        initialScore={evaluation.score}
-        initialComment={evaluation.comment}
-        disabled={isEvaluationDisabled()}
-        onScoreChange={(newScore) => updateLocalEvaluations(type, index, subType, { ...evaluation, score: newScore })}
-        onCommentChange={(newComment) => updateLocalEvaluations(type, index, subType, { ...evaluation, comment: newComment })}
-      />
-    );
-  }, [isTrainer, isAdmin, localEvaluations, isEvaluationDisabled, updateLocalEvaluations]);
+  const handleBesoinsChange = (value: string) => {
+    if (!exercise) return;
+
+    const newExercise = { ...exercise };
+    const section = newExercise.sections[3] || {
+      id: 'besoins_solution',
+      title: 'Besoins de Solution',
+      description: 'Besoins de solution identifiés',
+      besoinsSolution: { text: '', score: 0 as Score, trainerComment: '' }
+    };
+    
+    if (!section.besoinsSolution) {
+      section.besoinsSolution = { text: '', score: 0 as Score, trainerComment: '' };
+    }
+
+    section.besoinsSolution.text = value;
+    newExercise.sections[3] = section;
+
+    // Mettre à jour l'état local immédiatement
+    setExercise(newExercise);
+  };
+
+  const handleQuestionExpliciteChange = (index: number, value: string) => {
+    if (!exercise) return;
+
+    const newExercise = { ...exercise };
+    const section = newExercise.sections[0] || {
+      id: 'questions_explicites',
+      title: 'Questions Explicites',
+      description: 'Questions explicites pour clarifier',
+      questionsExplicites: []
+    };
+    
+    if (!section.questionsExplicites) {
+      section.questionsExplicites = [];
+    }
+
+    if (!section.questionsExplicites[index]) {
+      section.questionsExplicites[index] = {
+        text: '',
+        score: 0 as Score,
+        trainerComment: ''
+      };
+    }
+
+    section.questionsExplicites[index].text = value;
+    newExercise.sections[0] = section;
+
+    // Mettre à jour l'état local immédiatement
+    setExercise(newExercise);
+  };
+
+  const handleQuestionEvocatriceChange = (index: number, field: 'passe' | 'present' | 'futur', value: string) => {
+    if (!exercise) return;
+
+    const newExercise = { ...exercise };
+    const section = newExercise.sections[1] || {
+      id: 'questions_evocatrices',
+      title: 'Questions Évocatrices',
+      description: 'Questions évocatrices pour approfondir',
+      questionsEvocatrices: []
+    };
+    
+    if (!section.questionsEvocatrices) {
+      section.questionsEvocatrices = [];
+    }
+
+    if (!section.questionsEvocatrices[index]) {
+      section.questionsEvocatrices[index] = {
+        passe: '',
+        present: '',
+        futur: '',
+        scoresPasse: 0 as Score,
+        scoresPresent: 0 as Score,
+        scoresFutur: 0 as Score,
+        commentPasse: '',
+        commentPresent: '',
+        commentFutur: ''
+      };
+    }
+
+    section.questionsEvocatrices[index][field] = value;
+    newExercise.sections[1] = section;
+
+    // Mettre à jour l'état local immédiatement
+    setExercise(newExercise);
+  };
 
   if (loading) {
     return (
@@ -715,15 +1058,12 @@ export default function Cles() {
             <div className="flex flex-col space-y-4">
               <h2 className="text-lg font-semibold text-gray-900">Mode Formateur</h2>
               <div className="flex flex-wrap gap-4">
-                {exercise?.status === 'in_progress' && (
-                  <Button
-                    onClick={handleForceSubmit}
-                    className="bg-amber-600 text-white hover:bg-amber-700"
-                    disabled={loading}
-                  >
-                    Forcer la soumission
-                  </Button>
-                )}
+                <Button
+                  onClick={handlePublishEvaluation}
+                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md"
+                >
+                  Publier les évaluations
+                </Button>
                 <Button
                   onClick={() => handleAIEvaluation('explicite')}
                   className="bg-violet-600 text-white hover:bg-violet-700 relative"
@@ -812,7 +1152,7 @@ export default function Cles() {
           <section className="bg-white shadow-sm rounded-lg p-6">
             <h2 className="text-xl font-semibold text-green-600 mb-4">Problème Évocatrice</h2>
             <div className="space-y-1 text-sm text-gray-600 mb-6">
-              <p>Posez 2 questions de Problème Évocatrices pour chaque colonne: Passé + Actuel + Futur (6 au total)</p>
+              <p>Posez 3 questions de Problème Évocatrices pour chaque colonne: Passé + Actuel + Futur (9 au total)</p>
               <p>Posez 1 question d'Impacts</p>
               <p>Posez 1 question de Besoin de Solution</p>
             </div>
@@ -882,31 +1222,7 @@ export default function Cles() {
               <div>
                 <Textarea
                   value={exercise?.sections?.[2]?.impactsTemporels?.text || ''}
-                  onChange={(e) => {
-                    if (!exercise) return;
-                    const newExercise = { ...exercise };
-                    if (!newExercise.sections[2]) {
-                      newExercise.sections[2] = {
-                        id: 'impacts',
-                        title: 'Impacts',
-                        description: 'Questions sur les impacts',
-                        impactsTemporels: {
-                          text: '',
-                          score: 0 as Score,
-                          trainerComment: ''
-                        }
-                      };
-                    }
-                    if (!newExercise.sections[2].impactsTemporels) {
-                      newExercise.sections[2].impactsTemporels = {
-                        text: '',
-                        score: 0 as Score,
-                        trainerComment: ''
-                      };
-                    }
-                    newExercise.sections[2].impactsTemporels.text = e.target.value;
-                    updateExerciseAndStatus(newExercise);
-                  }}
+                  onChange={(e) => handleImpactsChange(e.target.value)}
                   className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                   placeholder="Décrivez les impacts..."
                   disabled={isAnswerDisabled()}
@@ -927,31 +1243,7 @@ export default function Cles() {
               <div>
                 <Textarea
                   value={exercise?.sections?.[3]?.besoinsSolution?.text || ''}
-                  onChange={(e) => {
-                    if (!exercise) return;
-                    const newExercise = { ...exercise };
-                    if (!newExercise.sections[3]) {
-                      newExercise.sections[3] = {
-                        id: 'besoins_solution',
-                        title: 'Besoins de Solution',
-                        description: 'Questions sur les besoins de solution',
-                        besoinsSolution: {
-                          text: '',
-                          score: 0 as Score,
-                          trainerComment: ''
-                        }
-                      };
-                    }
-                    if (!newExercise.sections[3].besoinsSolution) {
-                      newExercise.sections[3].besoinsSolution = {
-                        text: '',
-                        score: 0 as Score,
-                        trainerComment: ''
-                      };
-                    }
-                    newExercise.sections[3].besoinsSolution.text = e.target.value;
-                    updateExerciseAndStatus(newExercise);
-                  }}
+                  onChange={(e) => handleBesoinsChange(e.target.value)}
                   className={`w-full min-h-[80px] resize-vertical rounded-md border border-gray-300 focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-900`}
                   placeholder="Décrivez les besoins de solution..."
                   disabled={isAnswerDisabled()}
@@ -1053,15 +1345,6 @@ export default function Cles() {
               disabled={loading || !canSubmit()}
             >
               Soumettre l'exercice
-            </Button>
-          )}
-          {(isTrainer || isAdmin) && exercise?.status === 'submitted' && (
-            <Button
-              onClick={() => console.log('Publier')}
-              className="bg-blue-600 text-white hover:bg-blue-700"
-              disabled={loading}
-            >
-              Publier
             </Button>
           )}
           {(isTrainer || isAdmin) && Object.keys(localEvaluations).length > 0 && (

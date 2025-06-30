@@ -7,7 +7,7 @@ import { AIService } from '@/services/AIService';
 export type QuestionType = 'explicite' | 'evocatrice' | 'projective';
 
 // Type pour le score
-export type Score = 0 | 1 | 2;
+export type Score = 0 | 1 | 2 | 3 | 4;
 
 // Interface pour une question explicite
 export interface QuestionExplicite {
@@ -97,6 +97,7 @@ export interface TroisClesExercise {
   evaluatedBy?: string;
   submittedAt?: string;
   trainerFinalComment?: string;
+  trainerEvaluations?: any; // Stockage des évaluations du formateur
 }
 
 // Configuration des sections de l'exercice
@@ -378,8 +379,11 @@ export const troisClesService = {
       const exerciseForEvaluation = exerciseToEvaluate || exercise;
 
       console.log('Calling AI service for evaluation');
+      console.log('🔍 Sections envoyées à l\'IA:', exerciseForEvaluation.sections.length);
+      console.log('🔍 Détail des sections:', exerciseForEvaluation.sections.map(s => s.title));
+      
       const aiResponse = await AIService.evaluateExercise({
-        type: 'sections',
+        type: 'qles', // Utiliser le type spécifique 'qles' pour l'exercice 3 clés
         content: JSON.stringify(exerciseForEvaluation),
         organizationId: exercise.organizationId || 'default',
         botId: exercise.botId || import.meta.env.VITE_QLES_BOT_ID || 'default'
@@ -388,10 +392,40 @@ export const troisClesService = {
       // Si c'était une évaluation partielle, fusionner avec l'évaluation existante
       let updatedAiEvaluation = aiResponse;
       if (exerciseToEvaluate && exercise.aiEvaluation) {
+        // Fusionner les réponses IA précédentes avec les nouvelles
+        // en préservant les réponses des autres sections
+        const previousResponses = exercise.aiEvaluation.evaluation?.responses || [];
+        const newResponses = aiResponse.evaluation?.responses || [];
+        
+        // Identifier les sections des nouvelles réponses
+        const newSections = new Set(newResponses.map(r => r.section));
+        
+        // Conserver uniquement les réponses des sections qui ne sont pas dans les nouvelles réponses
+        const preservedResponses = previousResponses.filter(r => !newSections.has(r.section));
+        
+        // Fusionner les réponses préservées avec les nouvelles
+        const mergedResponses = [...preservedResponses, ...newResponses];
+        
+        // Créer une version typée de l'évaluation mise à jour
         updatedAiEvaluation = {
           ...exercise.aiEvaluation,
-          ...aiResponse
+          evaluation: {
+            ...aiResponse.evaluation,
+            responses: mergedResponses
+          },
+          // Utiliser any pour contourner les restrictions de type
+          // car la structure réelle contient commentaireGeneral
+          ...(aiResponse as any).commentaireGeneral ? 
+            { commentaireGeneral: (aiResponse as any).commentaireGeneral } : 
+            { commentaireGeneral: (exercise.aiEvaluation as any).commentaireGeneral || '' }
         };
+        
+        console.log('Fusion des évaluations IA:', {
+          previousSections: [...new Set(previousResponses.map(r => r.section))],
+          newSections: [...newSections],
+          preservedSections: [...new Set(preservedResponses.map(r => r.section))],
+          totalResponses: mergedResponses.length
+        });
       }
 
       console.log('Updating exercise with AI evaluation');

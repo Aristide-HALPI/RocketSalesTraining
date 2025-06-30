@@ -65,7 +65,7 @@ export interface AIEvaluationResponse {
   };
 }
 
-export type ExerciseType = 'rdv_decideur' | 'company' | 'sections' | 'goalkeeper' | 'presentation' | 'cdab' | 'eombus' | 'siiep' | 'iiep';
+export type ExerciseType = 'rdv_decideur' | 'company' | 'sections' | 'goalkeeper' | 'presentation' | 'cdab' | 'eombus' | 'siiep' | 'iiep' | 'qles';
 
 const EXERCISE_PROMPTS: Record<string, string> = {
   rdv_decideur: 'Please evaluate this RDV décideur exercise dialogue and provide feedback:',
@@ -75,10 +75,11 @@ const EXERCISE_PROMPTS: Record<string, string> = {
   goalkeeper: 'Please evaluate this goalkeeper exercise dialogue and provide feedback:',
   eombus: 'Please evaluate this EOMBUS-PAF-I exercise and provide feedback:',
   siiep: 'Please evaluate this SIIEP exercise and provide feedback:',
-  iiep: 'Please evaluate this IIEP exercise dialogue and provide feedback:'
+  iiep: 'Please evaluate this IIEP exercise dialogue and provide feedback:',
+  qles: 'Veuillez évaluer cet exercice Les 3 clés et fournir un retour détaillé au format JSON demandé:'
 };
 
-const extractJsonFromMarkdown = (content: string): string => {
+const extractJsonFromMarkdown = (content: string, type?: string): string => {
   // Extraire le JSON entre les balises ```json si présentes
   const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
   let jsonContent = jsonMatch ? jsonMatch[1] : content;
@@ -86,7 +87,139 @@ const extractJsonFromMarkdown = (content: string): string => {
   // Nettoyer le contenu avant le parsing
   jsonContent = jsonContent.trim();
   
-  // Si le JSON est tronqué, essayons de le réparer
+  // Pour le type 'qles', gérer plusieurs objets JSON
+  if (type === 'qles') {
+    console.log('Type QLES détecté, recherche de multiples objets JSON...');
+    
+    // Rechercher tous les objets JSON dans le contenu
+    const jsonObjects: any[] = [];
+    
+    // Utiliser une approche plus robuste pour extraire les objets JSON
+    let currentPos = 0;
+    let maxAttempts = 10; // Limiter le nombre de tentatives pour éviter les boucles infinies
+    
+    while (currentPos < jsonContent.length && maxAttempts > 0) {
+      maxAttempts--;
+      
+      // Chercher le prochain '{'
+      const startPos = jsonContent.indexOf('{', currentPos);
+      if (startPos === -1) break;
+      
+      // Compter les accolades pour trouver la fin de l'objet
+      let braceCount = 0;
+      let endPos = startPos;
+      let inString = false;
+      let escapeNext = false;
+      
+      for (let i = startPos; i < jsonContent.length; i++) {
+        const char = jsonContent[i];
+        
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+        
+        if (char === '\\') {
+          escapeNext = true;
+          continue;
+        }
+        
+        if (char === '"' && !escapeNext) {
+          inString = !inString;
+          continue;
+        }
+        
+        if (!inString) {
+          if (char === '{') braceCount++;
+          else if (char === '}') {
+            braceCount--;
+            if (braceCount === 0) {
+              endPos = i;
+              break;
+            }
+          }
+        }
+      }
+      
+      // Si on n'a pas trouvé la fin, essayer de réparer le JSON
+      if (braceCount > 0 && endPos === startPos) {
+        console.log('JSON incomplet détecté, tentative de réparation...');
+        // Ajouter les accolades manquantes
+        let repairedJson = jsonContent.substring(startPos);
+        while (braceCount > 0) {
+          repairedJson += '}';
+          braceCount--;
+        }
+        
+        try {
+          const parsed = JSON.parse(repairedJson);
+          jsonObjects.push(parsed);
+          console.log('JSON réparé avec succès');
+          break; // Sortir de la boucle car on a réparé le JSON
+        } catch (e) {
+          console.log('Impossible de réparer le JSON');
+        }
+      } else if (braceCount === 0 && endPos > startPos) {
+        const potentialJson = jsonContent.substring(startPos, endPos + 1);
+        try {
+          const parsed = JSON.parse(potentialJson);
+          jsonObjects.push(parsed);
+          console.log(`Objet JSON ${jsonObjects.length} extrait avec succès`);
+        } catch (e) {
+          console.log('Objet JSON invalide, passage au suivant...');
+        }
+      }
+      
+      currentPos = endPos + 1;
+    }
+    
+    // Si on a trouvé des objets JSON valides
+    if (jsonObjects.length > 0) {
+      console.log(`${jsonObjects.length} objets JSON valides trouvés`);
+      
+      // Chercher l'objet qui contient 'evaluation' ou 'responses'
+      const evaluationObj = jsonObjects.find(obj => 
+        obj.evaluation || obj.responses || (obj.evaluation && obj.evaluation.responses)
+      );
+      
+      if (evaluationObj) {
+        console.log('Objet d\'évaluation trouvé');
+        return JSON.stringify(evaluationObj);
+      }
+      
+      // Si pas d'objet evaluation, retourner le premier objet
+      console.log('Pas d\'objet evaluation spécifique, retour du premier objet');
+      return JSON.stringify(jsonObjects[0]);
+    } else if (jsonObjects.length === 1) {
+      return JSON.stringify(jsonObjects[0]);
+    }
+  }
+  
+  // Vérifier si la réponse contient plusieurs objets JSON concaténés
+  // (ce qui peut arriver avec certaines réponses de l'IA)
+  console.log('Vérification de la présence de plusieurs objets JSON...');
+  
+  // Essayer d'extraire le premier objet JSON valide
+  const jsonRegex = /{[\s\S]*?}(?=\s*{|$)/g;
+  const jsonMatches = jsonContent.match(jsonRegex);
+  
+  if (jsonMatches && jsonMatches.length > 0) {
+    console.log(`Détecté ${jsonMatches.length} objets JSON potentiels dans la réponse`);
+    
+    // Essayer chaque match jusqu'à trouver un JSON valide
+    for (const match of jsonMatches) {
+      try {
+        JSON.parse(match);
+        console.log('Premier objet JSON valide extrait avec succès');
+        return match;
+      } catch (e) {
+        // Continuer avec le prochain match
+        console.log('Objet JSON invalide, essai suivant...');
+      }
+    }
+  }
+  
+  // Si aucun objet JSON valide n'a été trouvé, essayer le parsing normal
   try {
     JSON.parse(jsonContent);
     return jsonContent;
@@ -157,6 +290,9 @@ export async function evaluateExercise(organizationId: string, content: string |
       case 'siiep':
       case 'iiep':
         botId = import.meta.env.VITE_SIIEP_BOT_ID;
+        break;
+      case 'qles':
+        botId = import.meta.env.VITE_QLES_BOT_ID;
         break;
       default:
         throw new Error(`Unknown exercise type: ${type}`);
@@ -244,7 +380,7 @@ criteria_name | score | max_points | feedback`;
       jsonContent = jsonContent.replace(/^[\s\S]*?({[\s\S]*})[\s\S]*$/, '$1');
       
       // Réparer le JSON tronqué si nécessaire
-      jsonContent = extractJsonFromMarkdown(jsonContent);
+      jsonContent = extractJsonFromMarkdown(jsonContent, type);
       
       console.log('Extracted JSON content:', jsonContent);
       
@@ -312,13 +448,18 @@ criteria_name | score | max_points | feedback`;
           });
 
           // Validate number of answers per section
-          const expectedAnswers = {
+          const maxAnswers = {
             'motivateurs': 5,
             'caracteristiques': 5,
-            'concepts': 2
+            'concepts': 3
           };
-          if (section.answers.length !== expectedAnswers[section.id as keyof typeof expectedAnswers]) {
-            throw new Error(`Invalid number of answers for section ${section.id}. Expected: ${expectedAnswers[section.id as keyof typeof expectedAnswers]}, Got: ${section.answers.length}`);
+          
+          // Accepter un nombre flexible de réponses pour toutes les sections
+          // Minimum 1 réponse, maximum défini dans maxAnswers
+          if (section.answers.length < 1) {
+            throw new Error(`Pas assez de réponses pour la section ${section.id}. Minimum: 1, Reçu: ${section.answers.length}`);
+          } else if (section.answers.length > maxAnswers[section.id as keyof typeof maxAnswers]) {
+            throw new Error(`Trop de réponses pour la section ${section.id}. Maximum: ${maxAnswers[section.id as keyof typeof maxAnswers]}, Reçu: ${section.answers.length}`);
           }
         });
       } else if (type === 'cdab' || type === 'eombus') {
@@ -329,23 +470,86 @@ criteria_name | score | max_points | feedback`;
         }
 
         // Validate each response
-        jsonResponse.responses.forEach((r: any, i: number) => {
+        jsonResponse.responses.forEach((r: any) => {
           if (typeof r.characteristic !== 'number' || 
               typeof r.section !== 'string' || 
               typeof r.score !== 'number' || 
               typeof r.maxPoints !== 'number' || 
               typeof r.comment !== 'string') {
-            throw new Error(`Invalid response format at index ${i}`);
+            throw new Error(`Invalid response format at index ${r.characteristic}: missing required fields`);
           }
         });
+      } else if (type === 'qles') {
+        // Validate QLES response format - structure différente avec jsonResponse.evaluation.responses
+        if (!jsonResponse.evaluation || !jsonResponse.evaluation.responses || !Array.isArray(jsonResponse.evaluation.responses)) {
+          console.error('Invalid QLES response structure:', jsonResponse);
+          throw new Error('Invalid QLES format: evaluation.responses array missing');
+        }
 
-        // Validate scores
-        if (typeof jsonResponse.totalScore !== 'number') {
-          throw new Error('Invalid response format: totalScore missing or invalid');
-        }
-        if (typeof jsonResponse.finalScoreOutOf100 !== 'number') {
-          console.warn('finalScoreOutOf100 missing, will use totalScore');
-        }
+        // Validate each response
+        jsonResponse.evaluation.responses.forEach((r: any) => {
+          if (typeof r.characteristic !== 'number' || 
+              typeof r.section !== 'string' || 
+              typeof r.score !== 'number' || 
+              typeof r.maxPoints !== 'number' || 
+              typeof r.comment !== 'string') {
+            throw new Error(`Invalid QLES response format at index ${r.characteristic}: missing required fields`);
+          }
+        });
+        
+        console.log('Traitement de la réponse pour qles:', jsonResponse);
+        
+        // Format attendu selon le prompt de l'IA
+        // L'IA renvoie toujours un objet avec evaluation et commentaireGeneral
+        const totalScore = jsonResponse.evaluation?.score || 0;
+        const feedback = jsonResponse.commentaireGeneral || 'Évaluation complétée';
+        
+        // Vérifier si les réponses existent
+        const rawResponses = jsonResponse.evaluation?.responses || [];
+        
+        console.log('Traitement des réponses pour qles, section spécifique:', rawResponses);
+        
+        // Traiter les réponses selon le format attendu
+        const responses = Array.isArray(rawResponses) ? 
+          rawResponses.map((r: any) => {
+            // Déterminer le type de section pour définir maxPoints
+            let maxPoints = 4; // Par défaut pour explicite et évocatrice
+            
+            // Détecter le type de section basé sur le nom de la section
+            const sectionName = (r.section || '').toLowerCase();
+            
+            if (sectionName.includes('projective') || sectionName.includes('projectif')) {
+              // C'est une question projective principale
+              maxPoints = 10; // 5 composants x 2 points
+            } else if (r.components && Array.isArray(r.components)) {
+              // Détection alternative basée sur la présence de composants
+              maxPoints = 10;
+            }
+            
+            return {
+              characteristic: r.characteristic || 0,
+              section: r.section || '',
+              score: r.score || 0,
+              maxPoints: maxPoints,
+              comment: r.comment || '',
+              // Ajouter les composants si présents (pour les questions projectives)
+              components: r.components ? r.components.map((c: any) => ({
+                ...c,
+                score: c.score || 0,
+                maxPoints: 2 // Les composants des questions projectives sont sur 2 points
+              })) : [],
+              // Ajouter le commentaire de section si présent
+              sectionComment: r.sectionComment || ''
+            };
+          }) : [];
+        
+        return {
+          score: totalScore,
+          feedback: feedback,
+          evaluation: {
+            responses: responses
+          }
+        };
       } else if (type === 'iiep' || type === 'siiep') {
         // Validate IIEP/SIIEP response format
         if (!jsonResponse.responses || !Array.isArray(jsonResponse.responses)) {
