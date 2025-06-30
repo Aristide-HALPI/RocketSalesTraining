@@ -374,17 +374,21 @@ export const troisClesService = {
         throw new Error('L\'exercice doit être soumis avant l\'évaluation par l\'IA');
       }
 
-      // Si un exercice spécifique est fourni pour l'évaluation, l'utiliser
-      // Sinon, utiliser l'exercice complet
-      const exerciseForEvaluation = exerciseToEvaluate || exercise;
+      // Déterminer le type de section à évaluer en fonction des sections fournies
+      const sectionType = this.determineSectionType(exerciseToEvaluate?.sections || []);
+      console.log('🔍 Type de section détecté:', sectionType);
+      
+      // Créer une version optimisée de l'exercice avec seulement les données nécessaires
+      const optimizedExercise = this.createOptimizedExercise(exercise, exerciseToEvaluate, sectionType);
 
       console.log('Calling AI service for evaluation');
-      console.log('🔍 Sections envoyées à l\'IA:', exerciseForEvaluation.sections.length);
-      console.log('🔍 Détail des sections:', exerciseForEvaluation.sections.map(s => s.title));
+      console.log('🔍 Sections envoyées à l\'IA:', optimizedExercise.sections.length);
+      console.log('🔍 Détail des sections:', optimizedExercise.sections.map(s => s.title));
+      console.log('🔍 Taille des données envoyées:', JSON.stringify(optimizedExercise).length, 'caractères');
       
       const aiResponse = await AIService.evaluateExercise({
         type: 'qles', // Utiliser le type spécifique 'qles' pour l'exercice 3 clés
-        content: JSON.stringify(exerciseForEvaluation),
+        content: JSON.stringify(optimizedExercise),
         organizationId: exercise.organizationId || 'default',
         botId: exercise.botId || import.meta.env.VITE_QLES_BOT_ID || 'default'
       });
@@ -439,5 +443,81 @@ export const troisClesService = {
       console.error('Error in evaluateWithAI:', error);
       throw error;
     }
+  },
+
+  /**
+   * Détermine le type de section à évaluer en fonction des sections fournies
+   */
+  determineSectionType(sections: TroisClesExercise['sections']): 'explicite' | 'evocatrice' | 'projective' | 'full' {
+    if (sections.length === 0) return 'full';
+    
+    // Vérifier le titre de la première section pour déterminer le type
+    const firstSection = sections[0];
+    
+    if (firstSection.title.toLowerCase().includes('explicite')) {
+      return 'explicite';
+    } else if (firstSection.title.toLowerCase().includes('evocatrice')) {
+      return 'evocatrice';
+    } else if (firstSection.title.toLowerCase().includes('projective')) {
+      return 'projective';
+    }
+    
+    // Si on ne peut pas déterminer le type, renvoyer 'full'
+    return 'full';
+  },
+  
+  /**
+   * Crée une version optimisée de l'exercice avec seulement les données nécessaires
+   */
+  createOptimizedExercise(fullExercise: TroisClesExercise, partialExercise?: TroisClesExercise, sectionType?: 'explicite' | 'evocatrice' | 'projective' | 'full'): TroisClesExercise {
+    // Si on n'a pas de type de section ou si c'est 'full', utiliser l'exercice complet ou partiel tel quel
+    if (!sectionType || sectionType === 'full') {
+      return partialExercise || fullExercise;
+    }
+    
+    // Créer un nouvel exercice avec les métadonnées nécessaires mais sans les sections
+    const optimizedExercise: TroisClesExercise = {
+      id: fullExercise.id,
+      userId: fullExercise.userId,
+      status: fullExercise.status,
+      createdAt: fullExercise.createdAt,
+      updatedAt: fullExercise.updatedAt,
+      organizationId: fullExercise.organizationId,
+      botId: fullExercise.botId,
+      maxScore: fullExercise.maxScore,
+      sections: []
+    };
+    
+    // Utiliser les sections de l'exercice partiel s'il est fourni, sinon utiliser l'exercice complet
+    const sourceExercise = partialExercise || fullExercise;
+    
+    // Filtrer les sections selon le type demandé
+    switch (sectionType) {
+      case 'explicite':
+        // Pour les questions explicites, inclure uniquement la section 0 (questions explicites)
+        optimizedExercise.sections = sourceExercise.sections.filter(section => 
+          section.title.toLowerCase().includes('explicite')
+        );
+        break;
+      case 'evocatrice':
+        // Pour les questions évocatrices, inclure uniquement la section 1 (questions évocatrices)
+        optimizedExercise.sections = sourceExercise.sections.filter(section => 
+          section.title.toLowerCase().includes('evocatrice')
+        );
+        break;
+      case 'projective':
+        // Pour les questions projectives, inclure uniquement la section 4 (questions projectives)
+        optimizedExercise.sections = sourceExercise.sections.filter(section => 
+          section.title.toLowerCase().includes('projective')
+        );
+        break;
+    }
+    
+    // Si aucune section n'a été trouvée, utiliser les sections fournies dans l'exercice partiel
+    if (optimizedExercise.sections.length === 0 && partialExercise) {
+      optimizedExercise.sections = partialExercise.sections;
+    }
+    
+    return optimizedExercise;
   }
 };
