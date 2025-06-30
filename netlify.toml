@@ -2,6 +2,16 @@
   command = "npm run build"
   publish = "dist"
 
+# Configuration des fonctions Netlify
+[functions]
+  # Augmente le timeout à 26 secondes (maximum pour les plans payants)
+  timeout = 26
+
+# Configuration spécifique pour les fonctions d'évaluation IA
+[functions."api/ai/evaluation"]
+  background = true
+  # Les background functions peuvent s'exécuter jusqu'à 15 minutes (900 secondes)
+
 [[redirects]]
   from = "/api/*"
   to = "https://fabrile.app/api/:splat"
