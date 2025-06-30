@@ -2,15 +2,20 @@
   command = "npm run build"
   publish = "dist"
 
-# Configuration des fonctions Netlify
+# Configuration des fonctions Netlify avec timeout étendu
 [functions]
-  # Augmente le timeout à 26 secondes (maximum pour les plans payants)
-  timeout = 26
 
 # Configuration spécifique pour les fonctions d'évaluation IA
 [functions."api/ai/evaluation"]
   background = true
   # Les background functions peuvent s'exécuter jusqu'à 15 minutes (900 secondes)
+
+# Configuration du timeout pour toutes les fonctions
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    # Augmente le timeout côté client
+    "netlify-function-timeout" = "26s"
 
 [[redirects]]
   from = "/api/*"
