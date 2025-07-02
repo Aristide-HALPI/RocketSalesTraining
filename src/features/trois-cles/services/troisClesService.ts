@@ -360,6 +360,128 @@ export const troisClesService = {
     }));
   },
 
+  /**
+   * Évalue la section projective en la divisant en deux parties pour éviter les timeouts
+   */
+  async evaluateProjectiveSection(exercise: TroisClesExercise): Promise<AIEvaluationResponse> {
+    console.log('🔄 Évaluation de la section projective en deux parties');
+    
+    // Récupérer la section projective
+    const projectiveSection = exercise.sections.find(section => 
+      section.title.toLowerCase().includes('projective')
+    );
+    
+    if (!projectiveSection || !projectiveSection.questionsProjectives || projectiveSection.questionsProjectives.length === 0) {
+      throw new Error('Aucune question projective trouvée dans l\'exercice');
+    }
+    
+    console.log(`📊 Nombre total de questions projectives: ${projectiveSection.questionsProjectives.length}`);
+    
+    // Partie 1: Questions 0-1 (les deux premières)
+    console.log('🔄 Évaluation de la partie 1 (questions 1-2)');
+    const part1Section = { ...projectiveSection };
+    part1Section.questionsProjectives = projectiveSection.questionsProjectives.slice(0, 2);
+    
+    // Créer un exercice optimisé pour la partie 1
+    const part1Exercise: TroisClesExercise = {
+      ...exercise,
+      sections: [part1Section]
+    };
+    
+    // Évaluer la partie 1
+    console.log('📦 Taille des données partie 1:', JSON.stringify(part1Exercise).length, 'caractères');
+    let part1Response: AIEvaluationResponse;
+    try {
+      part1Response = await this.callAIWithRetry(part1Exercise, part1Exercise);
+      console.log('✅ Évaluation partie 1 réussie');
+    } catch (error) {
+      console.error('❌ Échec de l\'évaluation partie 1:', error);
+      throw error;
+    }
+    
+    // Partie 2: Questions 2-4 (les trois dernières)
+    console.log('🔄 Évaluation de la partie 2 (questions 3-5)');
+    const part2Section = { ...projectiveSection };
+    part2Section.questionsProjectives = projectiveSection.questionsProjectives.slice(2);
+    
+    // Créer un exercice optimisé pour la partie 2
+    const part2Exercise: TroisClesExercise = {
+      ...exercise,
+      sections: [part2Section]
+    };
+    
+    // Évaluer la partie 2
+    console.log('📦 Taille des données partie 2:', JSON.stringify(part2Exercise).length, 'caractères');
+    let part2Response: AIEvaluationResponse | undefined;
+    try {
+      part2Response = await this.callAIWithRetry(part2Exercise, part2Exercise);
+      console.log('✅ Évaluation partie 2 réussie');
+    } catch (error) {
+      console.error('❌ Échec de l\'évaluation partie 2:', error);
+      // On continue même si la partie 2 échoue, on utilisera les résultats de la partie 1
+    }
+    
+    // Fusionner les résultats des deux parties
+    const mergedResponse: AIEvaluationResponse = part1Response;
+    if (part2Response && part2Response.evaluation && part2Response.evaluation.responses) {
+      if (!mergedResponse.evaluation) {
+        mergedResponse.evaluation = { responses: [] };
+      }
+      mergedResponse.evaluation.responses = [
+        ...(mergedResponse.evaluation.responses || []),
+        ...(part2Response.evaluation.responses || [])
+      ];
+    }
+    
+    console.log('✅ Fusion des résultats des deux parties réussie');
+    return mergedResponse;
+  },
+
+  /**
+   * Appelle l'API AI avec retry et timeout
+   */
+  async callAIWithRetry(fullExercise: TroisClesExercise, optimizedExercise: TroisClesExercise, maxRetries = 3, timeout = 90000): Promise<AIEvaluationResponse> {
+    let lastError: Error | unknown = new Error('Erreur inconnue');
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`🔄 Tentative d'évaluation IA ${attempt}/${maxRetries}`);
+        
+        // Créer une promesse avec timeout
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Timeout dépassé')), timeout);
+        });
+        
+        // Appeler l'API avec un timeout
+        const responsePromise = AIService.evaluateExercise({
+          type: 'qles', // Utiliser le type spécifique 'qles' pour l'exercice 3 clés
+          content: JSON.stringify(optimizedExercise),
+          organizationId: fullExercise.organizationId || 'default',
+          botId: fullExercise.botId || import.meta.env.VITE_QLES_BOT_ID || 'default'
+        });
+        
+        // Race entre le timeout et la réponse
+        return await Promise.race([responsePromise, timeoutPromise]);
+      } catch (error: unknown) {
+        lastError = error;
+        console.error(`❌ Échec de la tentative ${attempt}:`, error);
+        
+        // Si c'est une erreur 504, on réessaie
+        const is504Error = error instanceof Error && error.message.includes('504');
+        if (is504Error && attempt < maxRetries) {
+          console.log(`⏱️ Attente avant nouvelle tentative (${attempt + 1}/${maxRetries})...`);
+          await new Promise(resolve => setTimeout(resolve, 2000 * attempt)); // Attente progressive
+          continue;
+        }
+        
+        // Si c'est la dernière tentative ou une autre erreur, on la propage
+        throw error;
+      }
+    }
+    
+    throw lastError;
+  },
+
   async evaluateWithAI(userId: string, exerciseToEvaluate?: TroisClesExercise): Promise<void> {
     try {
       console.log('Starting AI evaluation for user:', userId);
@@ -378,64 +500,30 @@ export const troisClesService = {
       const sectionType = this.determineSectionType(exerciseToEvaluate?.sections || []);
       console.log('🔍 Type de section détecté:', sectionType);
       
-      // Créer une version optimisée de l'exercice avec seulement les données nécessaires
-      const optimizedExercise = this.createOptimizedExercise(exercise, exerciseToEvaluate, sectionType);
+      let aiResponse: AIEvaluationResponse;
+      
+      // Si c'est la section projective, on utilise notre méthode spéciale de découpage
+      if (sectionType === 'projective') {
+        console.log('🔍 Utilisation de la méthode de découpage pour la section projective');
+        aiResponse = await this.evaluateProjectiveSection(exercise);
+      } else {
+        // Pour les autres sections, on utilise la méthode standard
+        // Créer une version optimisée de l'exercice avec seulement les données nécessaires
+        const optimizedExercise = this.createOptimizedExercise(exercise, exerciseToEvaluate, sectionType);
 
-      console.log('Calling AI service for evaluation');
-      console.log('🔍 Sections envoyées à l\'IA:', optimizedExercise.sections.length);
-      console.log('🔍 Détail des sections:', optimizedExercise.sections.map(s => s.title));
-      console.log('🔍 Taille des données envoyées:', JSON.stringify(optimizedExercise).length, 'caractères');
-      
-      // Fonction pour appeler l'API avec retry
-      const callAIWithRetry = async (maxRetries = 3, timeout = 60000): Promise<AIEvaluationResponse> => {
-        let lastError: Error | unknown = new Error('Erreur inconnue');
+        console.log('Calling AI service for evaluation');
+        console.log('🔍 Sections envoyées à l\'IA:', optimizedExercise.sections.length);
+        console.log('🔍 Détail des sections:', optimizedExercise.sections.map((s: any) => s.title));
+        console.log('🔍 Taille des données envoyées:', JSON.stringify(optimizedExercise).length, 'caractères');
         
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          try {
-            console.log(`🔄 Tentative d'évaluation IA ${attempt}/${maxRetries}`);
-            
-            // Créer une promesse avec timeout
-            const timeoutPromise = new Promise<never>((_, reject) => {
-              setTimeout(() => reject(new Error('Timeout dépassé')), timeout);
-            });
-            
-            // Appeler l'API avec un timeout
-            const responsePromise = AIService.evaluateExercise({
-              type: 'qles', // Utiliser le type spécifique 'qles' pour l'exercice 3 clés
-              content: JSON.stringify(optimizedExercise),
-              organizationId: exercise.organizationId || 'default',
-              botId: exercise.botId || import.meta.env.VITE_QLES_BOT_ID || 'default'
-            });
-            
-            // Race entre le timeout et la réponse
-            return await Promise.race([responsePromise, timeoutPromise]);
-          } catch (error: unknown) {
-            lastError = error;
-            console.error(`❌ Échec de la tentative ${attempt}:`, error);
-            
-            // Si c'est une erreur 504, on réessaie
-            const is504Error = error instanceof Error && error.message.includes('504');
-            if (is504Error && attempt < maxRetries) {
-              console.log(`⏱️ Attente avant nouvelle tentative (${attempt + 1}/${maxRetries})...`);
-              await new Promise(resolve => setTimeout(resolve, 2000 * attempt)); // Attente progressive
-              continue;
-            }
-            
-            // Si c'est la dernière tentative ou une autre erreur, on la propage
-            throw error;
-          }
-        }
-        
-        throw lastError;
-      };
-      
-      // Appeler l'API avec retry et timeout étendu
-      const aiResponse = await callAIWithRetry(3, 90000); // 3 tentatives, 90 secondes de timeout
+        // Appeler l'API avec retry et timeout étendu
+        aiResponse = await this.callAIWithRetry(exercise, optimizedExercise);
+      }
 
       // Si c'était une évaluation partielle, fusionner avec l'évaluation existante
       let updatedAiEvaluation = aiResponse;
       if (exerciseToEvaluate && exercise.aiEvaluation) {
-        // Fusionner les réponses IA précédentes avec les nouvelles
+        console.log('Fusion avec l\'évaluation existante');
         // en préservant les réponses des autres sections
         const previousResponses = exercise.aiEvaluation.evaluation?.responses || [];
         const newResponses = aiResponse.evaluation?.responses || [];
@@ -464,9 +552,9 @@ export const troisClesService = {
         };
         
         console.log('Fusion des évaluations IA:', {
-          previousSections: [...new Set(previousResponses.map(r => r.section))],
+          previousSections: [...new Set(previousResponses.map((r: any) => r.section))],
           newSections: [...newSections],
-          preservedSections: [...new Set(preservedResponses.map(r => r.section))],
+          preservedSections: [...new Set(preservedResponses.map((r: any) => r.section))],
           totalResponses: mergedResponses.length
         });
       }
@@ -534,19 +622,19 @@ export const troisClesService = {
     switch (sectionType) {
       case 'explicite':
         // Pour les questions explicites, inclure uniquement la section 0 (questions explicites)
-        optimizedExercise.sections = sourceExercise.sections.filter(section => 
+        optimizedExercise.sections = sourceExercise.sections.filter((section: any) => 
           section.title.toLowerCase().includes('explicite')
         );
         break;
       case 'evocatrice':
         // Pour les questions évocatrices, inclure uniquement la section 1 (questions évocatrices)
-        optimizedExercise.sections = sourceExercise.sections.filter(section => 
+        optimizedExercise.sections = sourceExercise.sections.filter((section: any) => 
           section.title.toLowerCase().includes('evocatrice')
         );
         break;
       case 'projective':
         // Pour les questions projectives, inclure uniquement la section 4 (questions projectives)
-        optimizedExercise.sections = sourceExercise.sections.filter(section => 
+        optimizedExercise.sections = sourceExercise.sections.filter((section: any) => 
           section.title.toLowerCase().includes('projective')
         );
         break;
