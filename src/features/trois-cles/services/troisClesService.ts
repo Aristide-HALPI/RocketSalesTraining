@@ -438,6 +438,91 @@ export const troisClesService = {
   },
 
   /**
+   * Évalue la section évocatrice en la divisant en deux parties pour éviter les timeouts
+   */
+  async evaluateEvocatriceSection(exercise: TroisClesExercise): Promise<AIEvaluationResponse> {
+    console.log('🔄 Évaluation de la section évocatrice en deux parties');
+    
+    // Récupérer les sections évocatrices, impacts et besoins
+    const evocatriceSection = exercise.sections.find(section => section.id === 'questions_evocatrices');
+    const impactsSection = exercise.sections.find(section => section.id === 'impacts_temporels');
+    const besoinsSection = exercise.sections.find(section => section.id === 'besoins_solution');
+    
+    if (!evocatriceSection || !evocatriceSection.questionsEvocatrices || evocatriceSection.questionsEvocatrices.length === 0) {
+      throw new Error('Aucune question évocatrice trouvée dans l\'exercice');
+    }
+    
+    console.log(`📊 Nombre total de questions évocatrices: ${evocatriceSection.questionsEvocatrices.length}`);
+    
+    // Partie 1: Questions évocatrices 1-2 (les deux premières)
+    console.log('🔄 Évaluation de la partie 1 (questions évocatrices 1-2)');
+    const part1Section = { ...evocatriceSection };
+    part1Section.questionsEvocatrices = evocatriceSection.questionsEvocatrices.slice(0, 2);
+    
+    // Créer un exercice optimisé pour la partie 1
+    const part1Exercise: TroisClesExercise = {
+      ...exercise,
+      sections: [part1Section]
+    };
+    
+    // Évaluer la partie 1
+    console.log('📦 Taille des données partie 1:', JSON.stringify(part1Exercise).length, 'caractères');
+    let part1Response: AIEvaluationResponse;
+    try {
+      part1Response = await this.callAIWithRetry(part1Exercise, part1Exercise);
+      console.log('✅ Évaluation partie 1 réussie');
+    } catch (error) {
+      console.error('❌ Échec de l\'évaluation partie 1:', error);
+      throw error;
+    }
+    
+    // Partie 2: Question évocatrice 3 + impacts + besoins
+    console.log('🔄 Évaluation de la partie 2 (question évocatrice 3 + impacts + besoins)');
+    const part2EvocatriceSection = { ...evocatriceSection };
+    part2EvocatriceSection.questionsEvocatrices = evocatriceSection.questionsEvocatrices.slice(2);
+    
+    // Créer un exercice optimisé pour la partie 2
+    const part2Exercise: TroisClesExercise = {
+      ...exercise,
+      sections: [part2EvocatriceSection]
+    };
+    
+    // Ajouter les sections d'impacts et de besoins si elles existent
+    if (impactsSection) {
+      part2Exercise.sections.push(impactsSection);
+    }
+    if (besoinsSection) {
+      part2Exercise.sections.push(besoinsSection);
+    }
+    
+    // Évaluer la partie 2
+    console.log('📦 Taille des données partie 2:', JSON.stringify(part2Exercise).length, 'caractères');
+    let part2Response: AIEvaluationResponse | undefined;
+    try {
+      part2Response = await this.callAIWithRetry(part2Exercise, part2Exercise);
+      console.log('✅ Évaluation partie 2 réussie');
+    } catch (error) {
+      console.error('❌ Échec de l\'évaluation partie 2:', error);
+      // On continue même si la partie 2 échoue, on utilisera les résultats de la partie 1
+    }
+    
+    // Fusionner les résultats des deux parties
+    const mergedResponse: AIEvaluationResponse = part1Response;
+    if (part2Response && part2Response.evaluation && part2Response.evaluation.responses) {
+      if (!mergedResponse.evaluation) {
+        mergedResponse.evaluation = { responses: [] };
+      }
+      mergedResponse.evaluation.responses = [
+        ...(mergedResponse.evaluation.responses || []),
+        ...(part2Response.evaluation.responses || [])
+      ];
+    }
+    
+    console.log('✅ Fusion des résultats des deux parties réussie');
+    return mergedResponse;
+  },
+
+  /**
    * Appelle l'API AI avec retry et timeout
    */
   async callAIWithRetry(fullExercise: TroisClesExercise, optimizedExercise: TroisClesExercise, maxRetries = 3, timeout = 90000): Promise<AIEvaluationResponse> {
@@ -502,10 +587,13 @@ export const troisClesService = {
       
       let aiResponse: AIEvaluationResponse;
       
-      // Si c'est la section projective, on utilise notre méthode spéciale de découpage
+      // Si c'est la section projective ou évocatrice, on utilise notre méthode spéciale de découpage
       if (sectionType === 'projective') {
         console.log('🔍 Utilisation de la méthode de découpage pour la section projective');
         aiResponse = await this.evaluateProjectiveSection(exercise);
+      } else if (sectionType === 'evocatrice') {
+        console.log('🔍 Utilisation de la méthode de découpage pour la section évocatrice');
+        aiResponse = await this.evaluateEvocatriceSection(exercise);
       } else {
         // Pour les autres sections, on utilise la méthode standard
         // Créer une version optimisée de l'exercice avec seulement les données nécessaires
@@ -594,57 +682,61 @@ export const troisClesService = {
   },
   
   /**
-   * Crée une version optimisée de l'exercice avec seulement les données nécessaires
-   */
-  createOptimizedExercise(fullExercise: TroisClesExercise, partialExercise?: TroisClesExercise, sectionType?: 'explicite' | 'evocatrice' | 'projective' | 'full'): TroisClesExercise {
-    // Si on n'a pas de type de section ou si c'est 'full', utiliser l'exercice complet ou partiel tel quel
-    if (!sectionType || sectionType === 'full') {
-      return partialExercise || fullExercise;
-    }
-    
-    // Créer un nouvel exercice avec les métadonnées nécessaires mais sans les sections
-    const optimizedExercise: TroisClesExercise = {
-      id: fullExercise.id,
-      userId: fullExercise.userId,
-      status: fullExercise.status,
-      createdAt: fullExercise.createdAt,
-      updatedAt: fullExercise.updatedAt,
-      organizationId: fullExercise.organizationId,
-      botId: fullExercise.botId,
-      maxScore: fullExercise.maxScore,
-      sections: []
-    };
-    
-    // Utiliser les sections de l'exercice partiel s'il est fourni, sinon utiliser l'exercice complet
-    const sourceExercise = partialExercise || fullExercise;
-    
-    // Filtrer les sections selon le type demandé
-    switch (sectionType) {
-      case 'explicite':
-        // Pour les questions explicites, inclure uniquement la section 0 (questions explicites)
-        optimizedExercise.sections = sourceExercise.sections.filter((section: any) => 
-          section.title.toLowerCase().includes('explicite')
-        );
-        break;
-      case 'evocatrice':
-        // Pour les questions évocatrices, inclure uniquement la section 1 (questions évocatrices)
-        optimizedExercise.sections = sourceExercise.sections.filter((section: any) => 
-          section.title.toLowerCase().includes('evocatrice')
-        );
-        break;
-      case 'projective':
-        // Pour les questions projectives, inclure uniquement la section 4 (questions projectives)
-        optimizedExercise.sections = sourceExercise.sections.filter((section: any) => 
-          section.title.toLowerCase().includes('projective')
-        );
-        break;
-    }
-    
-    // Si aucune section n'a été trouvée, utiliser les sections fournies dans l'exercice partiel
-    if (optimizedExercise.sections.length === 0 && partialExercise) {
-      optimizedExercise.sections = partialExercise.sections;
-    }
-    
-    return optimizedExercise;
+ * Crée une version optimisée de l'exercice avec seulement les données nécessaires
+ */
+createOptimizedExercise(fullExercise: TroisClesExercise, partialExercise?: TroisClesExercise, sectionType?: 'explicite' | 'evocatrice' | 'projective' | 'full'): TroisClesExercise {
+  // Si on n'a pas de type de section ou si c'est 'full', utiliser l'exercice complet ou partiel tel quel
+  if (!sectionType || sectionType === 'full') {
+    return partialExercise || fullExercise;
+  }
+  
+  // Créer un nouvel exercice avec les métadonnées nécessaires mais sans les sections
+  const optimizedExercise: TroisClesExercise = {
+    id: fullExercise.id,
+    userId: fullExercise.userId,
+    status: fullExercise.status,
+    createdAt: fullExercise.createdAt,
+    updatedAt: fullExercise.updatedAt,
+    organizationId: fullExercise.organizationId,
+    botId: fullExercise.botId,
+    maxScore: fullExercise.maxScore,
+    sections: []
+  };
+  
+  // Utiliser les sections de l'exercice partiel s'il est fourni, sinon utiliser l'exercice complet
+  const sourceExercise = partialExercise || fullExercise;
+  
+  // Filtrer les sections selon le type demandé
+  switch (sectionType) {
+    case 'explicite':
+      // Pour les questions explicites, inclure uniquement la section avec les questions explicites
+      optimizedExercise.sections = sourceExercise.sections.filter((section: any) => 
+        section.id === 'questions_explicites'
+      );
+      break;
+    case 'evocatrice':
+      // Pour les questions évocatrices, inclure la section évocatrice ET les sections d'impacts temporels et besoins de solution
+      optimizedExercise.sections = sourceExercise.sections.filter((section: any) => 
+        section.id === 'questions_evocatrices' || 
+        section.id === 'impacts_temporels' || 
+        section.id === 'besoins_solution'
+      );
+      console.log(`🔍 Sections évocatrices sélectionnées: ${optimizedExercise.sections.length} sections`);
+      optimizedExercise.sections.forEach((s: any) => console.log(`  - ${s.id}: ${s.title}`));
+      break;
+    case 'projective':
+      // Pour les questions projectives, inclure uniquement la section avec les questions projectives
+      optimizedExercise.sections = sourceExercise.sections.filter((section: any) => 
+        section.id === 'questions_projectives'
+      );
+      break;
+  }
+  
+  // Si aucune section n'a été trouvée, utiliser les sections fournies dans l'exercice partiel
+  if (optimizedExercise.sections.length === 0 && partialExercise) {
+    optimizedExercise.sections = partialExercise.sections;
+  }
+  
+  return optimizedExercise;
   }
 };
